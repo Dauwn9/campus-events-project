@@ -47,3 +47,14 @@ export async function deleteEvent(id: string): Promise<boolean> {
   events = events.filter((e) => e.id !== id);
   return events.length < before;
 }
+export async function updateEvent(
+  id: string,
+  input: EventInput,
+): Promise<Event | null> {
+  const current = events.find((e) => e.id === id);
+  if (!current) return null;
+
+  const updated: Event = { ...current, ...input };
+  events = events.map((e) => (e.id === id ? updated : e));
+  return updated;
+}
