@@ -9,7 +9,6 @@ export default function HomePage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Афиша</h1>
       <Card className="space-y-3">
-        <Badge>Тест UI-кита</Badge>
         <Input placeholder="Поле ввода" />
         <Button>Кнопка</Button>
       </Card>
