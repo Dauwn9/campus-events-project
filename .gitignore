@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -42,3 +43,9 @@ next-env.d.ts
 node_modules
 .next
 .DS_Store
+
+/src/generated/prisma
+.claude/skills/ 
+.windsurf/skills/ 
+.agents/skills/ 
+skills-lock.json
