@@ -11,3 +11,200 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// ============================================================
+// Перечисления
+// ============================================================
+
+enum Role {
+  USER
+  ORGANIZER
+  ADMIN
+}
+
+enum PriorityStatus {
+  STANDARD
+  ACTIVE
+}
+
+enum EventStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+}
+
+enum RegistrationStatus {
+  CONFIRMED
+  WAITLIST
+  CANCELLED
+}
+
+// ============================================================
+// Пользователи
+// Поля name / email / emailVerified / image / createdAt / updatedAt
+// нужны Better Auth. Недостающие таблицы (сессии, аккаунты и т.п.)
+// Даша добавит на этапе 4 средствами самого Better Auth.
+// ============================================================
+
+model User {
+  id            String  @id @default(cuid())
+  name          String
+  email         String  @unique
+  emailVerified Boolean @default(false)
+  image         String?
+
+  role           Role           @default(USER)
+  priorityStatus PriorityStatus @default(STANDARD)
+  attendedCount  Int            @default(0)
+  noShowCount    Int            @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizedEvents     Event[]               @relation("EventOrganizer")
+  registrations       Registration[]        @relation("RegistrationUser")
+  checkIns            Registration[]        @relation("RegistrationCheckedInBy")
+  favorites           Favorite[]
+  comments            Comment[]
+  priorityMemberships EventPriorityMember[]
+  staffAssignments    EventStaff[]
+}
+
+// ============================================================
+// Категории и события
+// ============================================================
+
+model Category {
+  id   String @id @default(cuid())
+  name String @unique
+
+  events Event[]
+}
+
+model Event {
+  id          String  @id @default(cuid())
+  title       String
+  description String  @db.Text
+  location    String
+  coverUrl    String?
+
+  startsAt DateTime
+  endsAt   DateTime
+  capacity Int
+
+  status          EventStatus @default(PENDING)
+  rejectionReason String?
+
+  // Приоритетная запись: до registrationOpensAt + priorityWindowHours
+  // записываются только ACTIVE и участники из EventPriorityMember.
+  // priorityWindowHours = 0 означает, что приоритетного окна нет.
+  registrationOpensAt DateTime?
+  priorityWindowHours Int       @default(0)
+
+  organizerId String
+  organizer   User   @relation("EventOrganizer", fields: [organizerId], references: [id], onDelete: Restrict)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registrations   Registration[]
+  favorites       Favorite[]
+  comments        Comment[]
+  priorityMembers EventPriorityMember[]
+  staff           EventStaff[]
+
+  @@index([status, startsAt])
+  @@index([categoryId])
+  @@index([organizerId])
+}
+
+// ============================================================
+// Регистрации и вход по QR
+// Пара (userId, eventId) уникальна: после отмены запись не создаётся
+// заново, а переводится обратно в нужный статус.
+// ============================================================
+
+model Registration {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("RegistrationUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  status    RegistrationStatus @default(CONFIRMED)
+  createdAt DateTime           @default(now())
+
+  // Заполняется только у CONFIRMED-записей
+  qrToken String? @unique
+
+  checkedInAt   DateTime?
+  checkedInById String?
+  checkedInBy   User?     @relation("RegistrationCheckedInBy", fields: [checkedInById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, eventId])
+  @@index([eventId, status])
+}
+
+// ============================================================
+// Приоритетный список организатора и волонтёры-сканеры
+// ============================================================
+
+model EventPriorityMember {
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([eventId, userId])
+}
+
+model EventStaff {
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([eventId, userId])
+}
+
+// ============================================================
+// Избранное и комментарии
+// ============================================================
+
+model Favorite {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, eventId])
+}
+
+model Comment {
+  id   String @id @default(cuid())
+  text String @db.Text
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([eventId, createdAt])
+}
