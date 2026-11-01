@@ -1,11 +1,19 @@
+import "dotenv/config";
+import { PrismaPg } from "@prisma/adapter-pg";
 import {
   PrismaClient,
   Role,
   EventStatus,
   RegistrationStatus,
-} from "../src/generated/prisma";
+} from "../src/generated/prisma/client";
 
-const prisma = new PrismaClient();
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL не задана");
+}
+
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   await prisma.comment.deleteMany();
