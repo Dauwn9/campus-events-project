@@ -27,6 +27,15 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Демонстрационные моки
+
+Моки включены по умолчанию. Скопируйте `.env.example` в `.env.local` и задайте:
+
+- `NEXT_PUBLIC_USE_MOCKS=true` — использовать тестовые данные вместо реальных сервисов.
+- `NEXT_PUBLIC_MOCK_ERRORS=true` — случайно возвращать тестовую ошибку примерно в 20% запросов комментариев и статистики.
+
+После изменения переменных окружения перезапустите dev-сервер. В демо доступны афиша и события, комментарии, обзор администратора и управление категориями. Управление категориями и обзор находятся в `/admin`; для проверки переключите роль на администратора в dev-панели.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
