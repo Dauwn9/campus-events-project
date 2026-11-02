@@ -6,6 +6,8 @@ export type ServiceErrorCode =
   | "EVENT_PAST"
   | "NOT_OPEN_YET"
   | "FORBIDDEN"
+  | "ALREADY_EXISTS"
+  | "CATEGORY_IN_USE"
   | "INTERNAL";
 
 export class ServiceError extends Error {
