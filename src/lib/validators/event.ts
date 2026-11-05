@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const eventStatusSchema = z.enum([
   "DRAFT",
+  "PENDING",
+  "REJECTED",
   "PUBLISHED",
   "CANCELLED",
   "FINISHED",
@@ -20,6 +22,9 @@ export const eventSchema = z.object({
   organizerId: z.string(),
   status: eventStatusSchema,
   imageUrl: z.string().url().optional(),
+  rejectionReason: z.string().optional(),
+  registrationOpensAt: z.iso.datetime().optional(),
+  priorityWindowHours: z.number().int().min(0).max(168).optional(),
 });
 
 export const eventInputSchema = eventSchema

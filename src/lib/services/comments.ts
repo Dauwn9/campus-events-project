@@ -1,20 +1,52 @@
-import * as mock from "@/lib/mocks/comments";
-import { ServiceError, USE_MOCKS } from "./errors";
-import type { Comment } from "@/lib/validators/comment";
-
-const notReady = (): never => {
-  throw new ServiceError("INTERNAL", "Реальный сервис комментариев ещё не подключён");
-};
-
-export async function getComments(eventId: string): Promise<Comment[]> {
-  return USE_MOCKS ? mock.getComments(eventId) : notReady();
+import { randomUUID } from "node:crypto";
+import { readStore, changeStore } from "./demo-store";
+import { ServiceError } from "./errors";
+import { getCurrentUser, requireRole } from "@/lib/auth";
+import { createCommentInputSchema } from "@/lib/validators/comment";
+export async function getComments(eventId: string) {
+  return readStore()
+    .comments.filter((c) => c.eventId === eventId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
-
 export async function createComment(input: {
   eventId: string;
   userId: string;
   userName: string;
   text: string;
-}): Promise<Comment> {
-  return USE_MOCKS ? mock.createComment(input) : notReady();
+}) {
+  const user = await requireRole("STUDENT");
+  const parsed = createCommentInputSchema.parse(input);
+  return changeStore((store) => {
+    if (
+      !store.events.some(
+        (e) =>
+          e.id === parsed.eventId &&
+          ["PUBLISHED", "FINISHED"].includes(e.status),
+      )
+    )
+      throw new ServiceError("NOT_FOUND", "Событие недоступно");
+    const comment = {
+      ...parsed,
+      userId: user.id,
+      userName: user.name,
+      id: `comment-${randomUUID()}`,
+      createdAt: new Date().toISOString(),
+    };
+    store.comments.push(comment);
+    return comment;
+  });
+}
+export async function deleteComment(id: string) {
+  const user = await getCurrentUser();
+  return changeStore((store) => {
+    const comment = store.comments.find((c) => c.id === id);
+    if (!comment) throw new ServiceError("NOT_FOUND", "Комментарий не найден");
+    if (
+      user.role !== "ADMIN" &&
+      !(user.role === "STUDENT" && user.id === comment.userId)
+    )
+      throw new ServiceError("FORBIDDEN", "Нельзя удалить чужой комментарий");
+    store.comments = store.comments.filter((c) => c.id !== id);
+    return comment.eventId;
+  });
 }

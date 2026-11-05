@@ -1,11 +1,23 @@
-import * as mock from "@/lib/mocks/admin";
-import { ServiceError, USE_MOCKS } from "./errors";
-import type { AdminOverview } from "@/lib/mocks/admin";
-import { getEvents } from "./events";
-
-export async function getAdminOverview(): Promise<AdminOverview> {
-  if (!USE_MOCKS) {
-    throw new ServiceError("INTERNAL", "Реальный сервис статистики ещё не подключён");
-  }
-  return mock.getAdminOverview(await getEvents());
+import { requireRole } from "@/lib/auth";
+import { readStore } from "./demo-store";
+export async function getAdminOverview() {
+  await requireRole("ADMIN");
+  const store = readStore();
+  return {
+    totalEvents: store.events.length,
+    publishedEvents: store.events.filter((e) => e.status === "PUBLISHED")
+      .length,
+    totalRegistrations: store.registrations.filter(
+      (r) => r.status === "CONFIRMED",
+    ).length,
+    totalUsers: store.users.length,
+    popularEvents: [...store.events]
+      .sort((a, b) => b.registeredCount - a.registeredCount)
+      .slice(0, 5)
+      .map(({ id, title, registeredCount }) => ({
+        id,
+        title,
+        registeredCount,
+      })),
+  };
 }

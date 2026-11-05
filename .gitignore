@@ -45,7 +45,13 @@ node_modules
 .DS_Store
 
 /src/generated/prisma
+/.data/
+/work/
 .claude/skills/ 
 .windsurf/skills/ 
 .agents/skills/ 
 skills-lock.json
+
+# Local delivery artifacts
+/public/downloads/
+/public/preview-*

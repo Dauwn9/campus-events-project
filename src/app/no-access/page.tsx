@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function NoAccess() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4" id="main-content">
       <h1 className="text-2xl font-bold">Нет доступа</h1>
       <p className="text-muted">У вашей роли нет прав на эту страницу.</p>
       <Link

@@ -11,7 +11,10 @@ export type ServiceErrorCode =
   | "INTERNAL";
 
 export class ServiceError extends Error {
-  constructor(public code: ServiceErrorCode, message: string) {
+  constructor(
+    public code: ServiceErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = "ServiceError";
   }

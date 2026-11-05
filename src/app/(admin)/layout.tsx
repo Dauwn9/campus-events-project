@@ -1,6 +1,8 @@
 import Header from "@/components/layout/Header";
 import AdminSidebar from "@/components/layout/AdminSidebar";
 import { requireRole } from "@/lib/auth";
+import Footer from "@/components/layout/Footer";
+import { DemoNotice } from "@/components/workspace/WorkspaceUI";
 
 export default async function AdminLayout({
   children,
@@ -11,10 +13,11 @@ export default async function AdminLayout({
   return (
     <>
       <Header />
-      <div className="flex">
+      <div className="page-container admin-workspace">
         <AdminSidebar />
-        <main className="flex-1 p-6">{children}</main>
+        <main className="workspace admin-main" id="main-content"><DemoNotice/>{children}</main>
       </div>
+      <Footer/>
     </>
   );
 }

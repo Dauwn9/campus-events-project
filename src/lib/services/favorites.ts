@@ -1,21 +1,22 @@
-import { USE_MOCKS, ServiceError } from "./errors";
-import * as mock from "../mocks/favorites";
-import type { FavoriteWithEvent, ToggleFavoriteResult } from "../validators/favorite";
-
-
-const notReady = (): never => {
-  throw new ServiceError("INTERNAL", "Реальный сервис избранного ещё не подключён");
-};
-
-export async function getMyFavorites(): Promise<FavoriteWithEvent[]> {
-  return USE_MOCKS ? mock.getMyFavorites() : notReady();
+import { requireRole } from "@/lib/auth";
+import { readStore } from "./demo-store";
+import { toggleStudentFavorite } from "./campus";
+export async function getMyFavorites() {
+  const user = await requireRole("STUDENT");
+  const store = readStore();
+  return store.favorites
+    .filter((f) => f.userId === user.id)
+    .flatMap((f) => {
+      const event = store.events.find(
+        (e) =>
+          e.id === f.eventId && ["PUBLISHED", "FINISHED"].includes(e.status),
+      );
+      return event ? [{ ...f, event }] : [];
+    });
 }
-
-
-export async function getMyFavoriteIds(): Promise<string[]> {
-  return USE_MOCKS ? mock.getMyFavoriteIds() : notReady();
+export async function getMyFavoriteIds() {
+  return (await getMyFavorites()).map((f) => f.eventId);
 }
-
-export async function toggleFavorite(eventId: string): Promise<ToggleFavoriteResult> {
-  return USE_MOCKS ? mock.toggleFavorite(eventId) : notReady();
+export async function toggleFavorite(id: string) {
+  return toggleStudentFavorite(await requireRole("STUDENT"), id);
 }

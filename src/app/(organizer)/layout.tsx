@@ -1,5 +1,7 @@
 import Header from "@/components/layout/Header";
 import { requireRole } from "@/lib/auth";
+import Footer from "@/components/layout/Footer";
+import { DemoNotice } from "@/components/workspace/WorkspaceUI";
 
 export default async function OrganizerLayout({
   children,
@@ -10,7 +12,11 @@ export default async function OrganizerLayout({
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-5xl p-6">{children}</main>
+      <main className="page-container workspace" id="main-content">
+        <DemoNotice />
+        {children}
+      </main>
+      <Footer />
     </>
   );
 }

@@ -1,5 +1,4 @@
-import PagePlaceholder from "@/components/layout/PagePlaceholder";
-
-export default function Page() {
-  return <PagePlaceholder title="Регистрация" />;
+import AuthForm from "@/components/workspace/AuthForm";
+export default function RegisterPage() {
+  return <AuthForm register />;
 }

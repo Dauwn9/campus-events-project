@@ -9,7 +9,7 @@ const links = [
 
 export default function AdminSidebar() {
   return (
-    <aside className="min-h-screen w-56 shrink-0 border-r border-border bg-surface p-4">
+    <aside className="admin-sidebar">
       <h2 className="mb-4 font-semibold">Админ-панель</h2>
       <nav aria-label="Навигация администратора" className="space-y-1">
         {links.map((link) => (

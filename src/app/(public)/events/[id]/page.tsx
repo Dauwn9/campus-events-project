@@ -7,6 +7,12 @@ import { addCommentAction } from "@/app/admin-actions";
 import { getCategoryById } from "@/lib/services/categories";
 import { getComments } from "@/lib/services/comments";
 import { getEventById } from "@/lib/services/events";
+import EventPoster from "@/components/events/EventPoster";
+import { datePart } from "@/lib/event-design";
+import { getEventRegistrationState } from "@/lib/services/registrations";
+import { getMyFavoriteIds } from "@/lib/services/favorites";
+import { registerAction, favoriteAction, deleteCommentAction } from "@/app/campus-actions";
+import ActionForm from "@/components/workspace/ActionForm";
 
 export default async function EventPage({
   params,
@@ -25,6 +31,9 @@ export default async function EventPage({
     getCurrentUser(),
   ]);
   const canComment = user.role === "STUDENT";
+  if (!["PUBLISHED","FINISHED","CANCELLED"].includes(event.status) && user.role!=="ADMIN" && !(user.role==="ORGANIZER"&&user.id===event.organizerId)) notFound();
+  const registration = user.role==="STUDENT" ? await getEventRegistrationState(id) : null;
+  const isFavorite = user.role==="STUDENT" ? (await getMyFavoriteIds()).includes(id) : false;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -32,6 +41,7 @@ export default async function EventPage({
         ← К афише
       </Link>
       <article className="space-y-4">
+        <div className="detail-cover"><EventPoster categoryId={event.categoryId} large /></div>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-3xl font-bold">{event.title}</h1>
           {category && <Badge>{category.name}</Badge>}
@@ -40,7 +50,7 @@ export default async function EventPage({
         <Card className="grid gap-3 sm:grid-cols-2">
           <p>
             <span className="font-medium">Когда: </span>
-            {new Date(event.startsAt).toLocaleString("ru-RU")}
+            {datePart(event.startsAt, { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })} (Астана)
           </p>
           <p>
             <span className="font-medium">Место: </span>
@@ -52,6 +62,16 @@ export default async function EventPage({
           </p>
         </Card>
       </article>
+
+      <section className="event-registration-panel" aria-label="Участие в событии">
+        <div><h2>{registration?.state==="REGISTERED"?"Вы в списке участников":registration?.state==="WAITLISTED"?"Вы в листе ожидания":"Станьте частью события"}</h2><p>{event.status==="CANCELLED"?"Организатор отменил это событие.":registration?.state==="REGISTERED"?"Покажите QR-билет организатору на входе.":registration?.state==="WAITLISTED"?"При освобождении места запись подтвердится автоматически.":"Выбирайте встречи, которые сделают вашу студенческую жизнь ярче."}</p></div>
+        <div className="registration-buttons">
+          {user.role==="STUDENT"?<>
+            {registration?.state==="REGISTERED"||registration?.state==="WAITLISTED"?<Link className="workspace-button" href="/my-registrations">Мои билеты →</Link>:registration?.state==="PAST"?<span className="status-tag">Запись закрыта</span>:registration?.state==="NOT_OPEN_YET"?<p className="form-info">Запись откроется {registration.opensAt&&datePart(registration.opensAt,{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})} (Астана).</p>:<ActionForm action={registerAction.bind(null,id)}><button className="workspace-button">{registration?.state==="JOIN_WAITLIST"?"Встать в лист ожидания":"Записаться на событие"}</button></ActionForm>}
+            {["PUBLISHED","FINISHED"].includes(event.status)&&<ActionForm action={favoriteAction.bind(null,id)}><button className="workspace-button secondary">{isFavorite?"Убрать из избранного":"В избранное"}</button></ActionForm>}
+          </>:user.role==="GUEST"?<Link href="/login" className="workspace-button">Войти и записаться →</Link>:<Link href={user.role==="ADMIN"?"/admin/moderation":"/organizer"} className="workspace-button secondary">В рабочий кабинет →</Link>}
+        </div>
+      </section>
 
       <section className="space-y-4" aria-labelledby="comments-heading">
         <h2 id="comments-heading" className="text-2xl font-bold">
@@ -80,6 +100,7 @@ export default async function EventPage({
                   </time>
                 </div>
                 <p className="whitespace-pre-wrap">{comment.text}</p>
+                {(user.role==="ADMIN"||user.id===comment.userId)&&<ActionForm action={deleteCommentAction.bind(null,comment.id)} confirm="Удалить этот комментарий?"><button className="comment-delete">Удалить комментарий</button></ActionForm>}
               </Card>
             ))}
           </div>

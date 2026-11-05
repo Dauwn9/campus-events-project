@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Campus Events",
-  description: "Афиша студенческих событий",
+  title: "AIU Campus Events — жизнь за пределами пар",
+  description: "События Международного университета Астана: лекции, музыка, искусство и карьера. Найди своё событие в AIU.",
 };
 
 export default async function RootLayout({
@@ -24,8 +24,9 @@ export default async function RootLayout({
   return (
     <html lang="ru">
       <body className={inter.variable}>
+        <a className="skip-link" href="#main-content">Перейти к содержимому</a>
         <ToastProvider>{children}</ToastProvider>
-        <DevRoleSwitcher current={user.role} />
+        {process.env.NEXT_PUBLIC_USE_MOCKS!=="false"&&<DevRoleSwitcher current={user.role} />}
       </body>
     </html>
   );
