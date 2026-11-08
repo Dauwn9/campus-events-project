@@ -21,6 +21,7 @@ export const eventSchema = z.object({
   categoryId: z.string(),
   organizerId: z.string(),
   status: eventStatusSchema,
+  archivedAt: z.iso.datetime().nullable().optional(),
   imageUrl: z.string().url().optional(),
   rejectionReason: z.string().optional(),
   registrationOpensAt: z.iso.datetime().optional(),
@@ -28,7 +29,7 @@ export const eventSchema = z.object({
 });
 
 export const eventInputSchema = eventSchema
-  .omit({ id: true, registeredCount: true })
+  .omit({ id: true, registeredCount: true, archivedAt: true })
   .refine((e) => new Date(e.endsAt) > new Date(e.startsAt), {
     message: "Окончание должно быть позже начала",
     path: ["endsAt"],

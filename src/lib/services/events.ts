@@ -12,6 +12,7 @@ export async function getEvents(filters: EventFilters = {}) {
   return readStore()
     .events.filter(
       (e) =>
+        !e.archivedAt &&
         (!filters.status || e.status === filters.status) &&
         (!filters.categoryId || e.categoryId === filters.categoryId) &&
         (!filters.from || e.startsAt >= filters.from) &&
@@ -21,5 +22,5 @@ export async function getEvents(filters: EventFilters = {}) {
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 export async function getEventById(id: string) {
-  return readStore().events.find((e) => e.id === id) ?? null;
+  return readStore().events.find((e) => e.id === id && !e.archivedAt) ?? null;
 }

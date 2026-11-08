@@ -9,7 +9,10 @@ export async function getMyFavorites() {
     .flatMap((f) => {
       const event = store.events.find(
         (e) =>
-          e.id === f.eventId && ["PUBLISHED", "FINISHED"].includes(e.status),
+          e.id === f.eventId &&
+          !e.archivedAt &&
+          !e.archivedAt &&
+          ["PUBLISHED", "FINISHED"].includes(e.status),
       );
       return event ? [{ ...f, event }] : [];
     });

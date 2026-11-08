@@ -1,19 +1,18 @@
-import { requireRole } from "@/lib/auth";
-import { readStore } from "@/lib/services/demo-store";
+import { getAdminUsers } from "@/lib/services/admin";
 import { PageHeading, Stats } from "@/components/workspace/WorkspaceUI";
 import UsersTable from "@/components/workspace/UsersTable";
 export default async function UsersPage() {
-  await requireRole("ADMIN");
-  const users = readStore().users.map(
-    ({ id, name, email, role, blocked, group }) => ({
-      id,
-      name,
-      email,
-      role,
-      blocked,
-      group,
-    }),
-  );
+  const users = await getAdminUsers();
+  const blockedUntilLabel = (user: (typeof users)[number]) =>
+    user.blocked
+      ? user.blockedUntil
+        ? `До ${new Intl.DateTimeFormat("ru-RU", {
+            dateStyle: "medium",
+            timeStyle: "short",
+            timeZone: "Asia/Almaty",
+          }).format(new Date(user.blockedUntil))}`
+        : "Без срока"
+      : "";
   return (
     <>
       <PageHeading
@@ -34,7 +33,12 @@ export default async function UsersPage() {
           },
         ]}
       />
-      <UsersTable users={users} />
+      <UsersTable
+        users={users.map((user) => ({
+          ...user,
+          blockedUntilLabel: blockedUntilLabel(user),
+        }))}
+      />
     </>
   );
 }

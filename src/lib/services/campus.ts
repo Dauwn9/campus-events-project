@@ -13,18 +13,82 @@ import {
   verifyPassword,
   type CampusStore,
   type CampusUser,
+  type CampusAuditEntry,
 } from "./demo-store";
 import { ServiceError } from "./errors";
 import { eventInputSchema, type EventInput } from "@/lib/validators/event";
 import type { Role } from "@/lib/roles";
 
 export type Actor = { id: string; role: Role };
+export function isCampusUserBlocked(
+  user: Pick<CampusUser, "blocked" | "blockedUntil">,
+  now = Date.now(),
+) {
+  if (!user.blocked) return false;
+  if (!user.blockedUntil) return true;
+  const expiresAt = Date.parse(user.blockedUntil);
+  return !Number.isFinite(expiresAt) || expiresAt > now;
+}
+
+function auditValue(value: unknown, store: CampusStore, field: string) {
+  if (value === undefined || value === null || value === "") return "—";
+  if (field === "categoryId") {
+    return store.categories.find((category) => category.id === value)?.name ??
+      String(value);
+  }
+  if (field === "status") {
+    const labels: Record<string, string> = {
+      DRAFT: "Черновик",
+      PENDING: "На модерации",
+      REJECTED: "Отклонено",
+      PUBLISHED: "Опубликовано",
+      CANCELLED: "Отменено",
+      FINISHED: "Завершено",
+    };
+    return labels[String(value)] ?? String(value);
+  }
+  if (field === "role") {
+    const labels: Record<string, string> = {
+      STUDENT: "Студент",
+      ORGANIZER: "Организатор",
+      ADMIN: "Администратор",
+    };
+    return labels[String(value)] ?? String(value);
+  }
+  if (field === "blocked") return value ? "Заблокирован" : "Активен";
+  return String(value);
+}
+
+function recordAuditChanges(
+  store: CampusStore,
+  actor: Actor,
+  entity: Pick<CampusAuditEntry, "entityType" | "entityId" | "entityLabel">,
+  changes: { field: string; oldValue: unknown; newValue: unknown }[],
+) {
+  const actorName =
+    store.users.find((user) => user.id === actor.id)?.name ?? actor.id;
+  const occurredAt = new Date().toISOString();
+  for (const change of changes) {
+    store.auditLog.push({
+      id: randomUUID(),
+      occurredAt,
+      actorId: actor.id,
+      actorName,
+      ...entity,
+      field: change.field,
+      oldValue: auditValue(change.oldValue, store, change.field),
+      newValue: auditValue(change.newValue, store, change.field),
+    });
+  }
+  store.auditLog = store.auditLog.slice(-1000);
+}
+
 export function assertRole(actor: Actor, roles: Role[], store = readStore()) {
   const user = store.users.find((item) => item.id === actor.id);
   if (
     !roles.includes(actor.role) ||
     !user ||
-    user.blocked ||
+    isCampusUserBlocked(user) ||
     user.role !== actor.role
   )
     throw new ServiceError("FORBIDDEN", "Это действие недоступно вашей роли.");
@@ -41,13 +105,79 @@ export function ownedEvent(store: CampusStore, actor: Actor, eventId: string) {
     );
   return event;
 }
+
+export function archiveAdminEvent(actor: Actor, eventId: string) {
+  return changeStore((store) => {
+    assertRole(actor, ["ADMIN"], store);
+    const event = store.events.find((item) => item.id === eventId);
+    if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
+    if (event.archivedAt)
+      throw new ServiceError("FORBIDDEN", "Событие уже находится в архиве.");
+    event.archivedAt = new Date().toISOString();
+    recordAuditChanges(
+      store,
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: event.id,
+        entityLabel: `${event.title} (${event.id})`,
+      },
+      [{ field: "archivedAt", oldValue: null, newValue: event.archivedAt }],
+    );
+    return event;
+  });
+}
+
+export function restoreAdminEvent(actor: Actor, eventId: string) {
+  return changeStore((store) => {
+    assertRole(actor, ["ADMIN"], store);
+    const event = store.events.find((item) => item.id === eventId);
+    if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
+    if (!event.archivedAt)
+      throw new ServiceError("FORBIDDEN", "Событие не находится в архиве.");
+    if (
+      store.categories.some(
+        (category) =>
+          category.id === event.categoryId && category.archivedAt,
+      )
+    )
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Сначала восстановите категорию события.",
+      );
+    const archivedAt = event.archivedAt;
+    event.archivedAt = null;
+    recordAuditChanges(
+      store,
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: event.id,
+        entityLabel: `${event.title} (${event.id})`,
+      },
+      [{ field: "archivedAt", oldValue: archivedAt, newValue: null }],
+    );
+    return event;
+  });
+}
+
 export function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
   const parsed = eventInputSchema.parse(input);
   return changeStore((store) => {
     assertRole(actor, ["ORGANIZER"], store);
-    if (!store.categories.some((c) => c.id === parsed.categoryId))
+    if (
+      !store.categories.some(
+        (category) =>
+          category.id === parsed.categoryId && !category.archivedAt,
+      )
+    )
       throw new ServiceError("NOT_FOUND", "Выберите существующую категорию.");
     const previous = id ? ownedEvent(store, actor, id) : undefined;
+    if (previous?.archivedAt)
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Событие находится в архиве. Сначала восстановите его.",
+      );
     if (new Date(parsed.startsAt) <= new Date())
       throw new ServiceError(
         "EVENT_PAST",
@@ -82,12 +212,42 @@ export function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
     const event = {
       ...parsed,
       id: previous?.id ?? `evt-${randomUUID()}`,
+      archivedAt: previous?.archivedAt ?? null,
       organizerId: actor.id,
       registeredCount: previous?.registeredCount ?? 0,
       status:
         parsed.status === "DRAFT" ? ("DRAFT" as const) : ("PENDING" as const),
       rejectionReason: undefined,
     };
+    const auditFields = [
+      "title",
+      "description",
+      "location",
+      "startsAt",
+      "endsAt",
+      "capacity",
+      "categoryId",
+      "registrationOpensAt",
+      "priorityWindowHours",
+      "status",
+      "rejectionReason",
+    ] as const;
+    recordAuditChanges(
+      store,
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: event.id,
+        entityLabel: `${event.title} (${event.id})`,
+      },
+      auditFields.flatMap((field) => {
+        const oldValue = previous?.[field];
+        const newValue = event[field];
+        return previous && oldValue === newValue
+          ? []
+          : [{ field, oldValue, newValue }];
+      }),
+    );
     store.events = [...store.events.filter((e) => e.id !== event.id), event];
     return event;
   });
@@ -100,6 +260,13 @@ export function changeEventStatus(
 ) {
   return changeStore((store) => {
     const event = ownedEvent(store, actor, eventId);
+    if (event.archivedAt)
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Событие находится в архиве. Сначала восстановите его.",
+      );
+    const previousStatus = event.status;
+    const previousReason = event.rejectionReason;
     if (action === "approve" || action === "reject") {
       assertRole(actor, ["ADMIN"], store);
       if (event.status !== "PENDING")
@@ -143,6 +310,16 @@ export function changeEventStatus(
           "FORBIDDEN",
           "Есть участники. Отмените событие, чтобы сохранить их историю.",
         );
+      recordAuditChanges(
+        store,
+        actor,
+        {
+          entityType: "EVENT",
+          entityId: event.id,
+          entityLabel: `${event.title} (${event.id})`,
+        },
+        [{ field: "deleted", oldValue: event.title, newValue: "Удалено" }],
+      );
       store.events = store.events.filter((e) => e.id !== eventId);
       store.favorites = store.favorites.filter((f) => f.eventId !== eventId);
       store.comments = store.comments.filter((c) => c.eventId !== eventId);
@@ -161,6 +338,35 @@ export function changeEventStatus(
         (r) => r.eventId === eventId && r.status === "CONFIRMED",
       ).length;
     }
+    recordAuditChanges(
+      store,
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: event.id,
+        entityLabel: `${event.title} (${event.id})`,
+      },
+      [
+        ...(previousStatus !== event.status
+          ? [
+              {
+                field: "status",
+                oldValue: previousStatus,
+                newValue: event.status,
+              },
+            ]
+          : []),
+        ...(previousReason !== event.rejectionReason
+          ? [
+              {
+                field: "rejectionReason",
+                oldValue: previousReason,
+                newValue: event.rejectionReason,
+              },
+            ]
+          : []),
+      ],
+    );
     return event;
   });
 }
@@ -168,7 +374,7 @@ export function registerStudent(actor: Actor, eventId: string) {
   return changeStore((store) => {
     assertRole(actor, ["STUDENT"], store);
     const event = store.events.find((e) => e.id === eventId);
-    if (!event || event.status !== "PUBLISHED")
+    if (!event || event.archivedAt || event.status !== "PUBLISHED")
       throw new ServiceError("NOT_FOUND", "Событие недоступно для записи.");
     if (new Date(event.startsAt) <= new Date())
       throw new ServiceError(
@@ -259,7 +465,9 @@ export function cancelStudentRegistration(
           (r) =>
             r.eventId === event.id &&
             r.status === "WAITLIST" &&
-            !store.users.find((u) => u.id === r.userId)?.blocked,
+            !store.users.some(
+              (u) => u.id === r.userId && isCampusUserBlocked(u),
+            ),
         )
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
       if (next) {
@@ -278,7 +486,7 @@ export function checkInParticipant(
 ) {
   return changeStore((store) => {
     const event = ownedEvent(store, actor, eventId);
-    if (event.status !== "PUBLISHED")
+    if (event.archivedAt || event.status !== "PUBLISHED")
       throw new ServiceError(
         "FORBIDDEN",
         "Вход доступен только на опубликованное событие.",
@@ -295,7 +503,7 @@ export function checkInParticipant(
         "Действующая запись на выбранное событие не найдена.",
       );
     const participant = store.users.find((u) => u.id === registration.userId)!;
-    if (participant.blocked)
+    if (isCampusUserBlocked(participant))
       throw new ServiceError("FORBIDDEN", "Участник заблокирован.");
     if (registration.qrToken === code) {
       const expected = Buffer.from(qrToken(store, registration.id));
@@ -335,7 +543,10 @@ export function toggleStudentFavorite(actor: Actor, eventId: string) {
     assertRole(actor, ["STUDENT"], store);
     if (
       !store.events.some(
-        (e) => e.id === eventId && ["PUBLISHED", "FINISHED"].includes(e.status),
+        (e) =>
+          e.id === eventId &&
+          !e.archivedAt &&
+          ["PUBLISHED", "FINISHED"].includes(e.status),
       )
     )
       throw new ServiceError("NOT_FOUND", "Событие недоступно.");
@@ -357,8 +568,9 @@ export function toggleStudentFavorite(actor: Actor, eventId: string) {
 export function updateCampusUser(
   actor: Actor,
   id: string,
-  role: Role,
+  role: unknown,
   blocked: boolean,
+  banDuration = "permanent",
 ) {
   return changeStore((store) => {
     assertRole(actor, ["ADMIN"], store);
@@ -372,8 +584,62 @@ export function updateCampusUser(
       );
     if (user.id === actor.id)
       throw new ServiceError("FORBIDDEN", "Нельзя изменить собственные права.");
+    const duration = z
+      .enum(["keep", "1d", "7d", "30d", "permanent"])
+      .parse(banDuration);
+    const wasBlocked = isCampusUserBlocked(user);
+    const previousRole = user.role;
+    const previousBlockedUntil = user.blockedUntil ?? null;
     user.role = validated;
     user.blocked = blocked;
+    if (!blocked) {
+      user.blockedUntil = null;
+    } else if (duration !== "keep") {
+      user.blockedUntil =
+        duration === "permanent"
+          ? null
+          : new Date(
+              Date.now() +
+                Number.parseInt(duration, 10) * 86400000,
+            ).toISOString();
+    } else if (!wasBlocked) {
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Для новой блокировки выберите срок.",
+      );
+    }
+    recordAuditChanges(
+      store,
+      actor,
+      {
+        entityType: "USER",
+        entityId: user.id,
+        entityLabel: `${user.name} (${user.email})`,
+      },
+      [
+        ...(previousRole !== user.role
+          ? [{ field: "role", oldValue: previousRole, newValue: user.role }]
+          : []),
+        ...(wasBlocked !== blocked
+          ? [
+              {
+                field: "blocked",
+                oldValue: wasBlocked,
+                newValue: blocked,
+              },
+            ]
+          : []),
+        ...(previousBlockedUntil !== (user.blockedUntil ?? null)
+          ? [
+              {
+                field: "blockedUntil",
+                oldValue: previousBlockedUntil,
+                newValue: user.blockedUntil ?? null,
+              },
+            ]
+          : []),
+      ],
+    );
     return { id: user.id, role: user.role, blocked: user.blocked };
   });
 }
@@ -456,7 +722,7 @@ export function signIn(email: string, password: string) {
   );
   if (
     !user ||
-    user.blocked ||
+    isCampusUserBlocked(user) ||
     password.length > 128 ||
     !verifyPassword(password, user.passwordHash)
   )
@@ -486,7 +752,9 @@ export function sessionUser(token: string) {
       s.expires > Date.now(),
   );
   return session
-    ? store.users.find((u) => u.id === session.userId && !u.blocked)
+    ? store.users.find(
+        (u) => u.id === session.userId && !isCampusUserBlocked(u),
+      )
     : undefined;
 }
 export function revokeSession(token: string) {
