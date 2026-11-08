@@ -106,8 +106,32 @@ a, button, input, select { transition: color .18s, background-color .18s, border
 .event-search > svg { flex-shrink: 0; }
 .event-search input { min-width: 0; width: 100%; height: 42px; border: 0; outline: 0; background: transparent; font-size: 12px; color: var(--color-text); }
 .event-search input::placeholder { color: #7a8195; }
-.period-select { display: flex; gap: 8px; align-items: center; background: #f8f9fc; border: 1px solid #d4d9e5; border-radius: 6px; padding: 0 11px; color: #61667e; }
-.period-select select { width: 151px; font-size: 11px; background: transparent; height: 42px; border: 0; outline-offset: 0; color: #454b63; }
+.date-filter { position: relative; flex: 0 0 224px; }
+.date-filter-trigger { display: flex; align-items: center; gap: 9px; width: 100%; height: 44px; padding: 0 12px; border: 1px solid #d4d9e5; border-radius: 6px; background: #f8f9fc; color: #555b76; text-align: left; }
+.date-filter-trigger:hover, .date-filter-trigger[aria-expanded="true"] { border-color: #9a8bba; background: #fff; color: #333479; }
+.date-filter-trigger > span { flex: 1; min-width: 0; overflow: hidden; color: #454b63; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.date-filter-trigger > svg:last-child { transform: rotate(90deg); }
+.date-picker-popover { position: absolute; z-index: 20; top: calc(100% + 9px); right: 0; width: 302px; padding: 14px; border: 1px solid #d9d8e4; border-radius: 10px; background: #fbfaf8; box-shadow: 0 14px 36px #181c3d24; color: #252a47; }
+.date-picker-presets { display: flex; flex-wrap: wrap; gap: 5px; padding-bottom: 12px; border-bottom: 1px solid #e8e5e1; }
+.date-picker-presets button { min-height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: 4px; color: #686c80; font-size: 9px; }
+.date-picker-presets button:hover { background: #eeedf4; color: #333479; }
+.date-picker-presets button.selected { border-color: #d7d2e8; background: #e9e7f2; color: #333479; font-weight: 600; }
+.calendar-heading { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; padding: 12px 0 9px; text-align: center; }
+.calendar-heading strong { color: #303452; font-family: var(--font-sans), sans-serif; font-size: 14px; font-weight: 600; text-transform: capitalize; }
+.calendar-heading button { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; color: #646983; }
+.calendar-heading button:first-child svg { transform: rotate(180deg); }
+.calendar-heading button:hover { background: #e8e6ef; color: #333479; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px 1px; }
+.calendar-weekday { display: grid; height: 26px; place-items: center; color: #89899a; font-size: 8px; font-weight: 600; }
+.calendar-day-spacer { height: 32px; }
+.calendar-day { position: relative; z-index: 0; display: grid; height: 32px; place-items: center; border-radius: 50%; color: #45495f; font-size: 10px; }
+.calendar-day:hover { background: #e9e7f2; color: #333479; }
+.calendar-day.in-range { border-radius: 4px; background: #eeedf4; color: #333479; }
+.calendar-day.selected, .calendar-day.selected:hover { background: #333479; color: #fff; font-weight: 600; }
+.calendar-day.range-start { border-radius: 50% 4px 4px 50%; }
+.calendar-day.range-end { border-radius: 4px 50% 50% 4px; }
+.calendar-day.range-start.range-end { border-radius: 50%; }
+.calendar-hint { margin: 10px 0 0; color: #85869a; font-size: 9px; text-align: center; }
 .category-filters { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; padding-top: 11px; }
 .category-filters button { padding: 8px 10px; border-radius: 5px; font-size: 10px; font-weight: 500; color: #62697e; min-height: 33px; }
 .category-filters button:hover { background: #d7dbe8; color: var(--navy); }
@@ -315,8 +339,9 @@ a, button, input, select { transition: color .18s, background-color .18s, border
   .section-note { display: none; }
   .search-row { flex-direction: column; gap: 9px; }
   .filter-panel { padding: 11px; }
-  .period-select { height: 38px; }
-  .period-select select { flex: 1; height: 36px; }
+  .date-filter { flex-basis: auto; width: 100%; }
+  .date-filter-trigger { height: 40px; }
+  .date-picker-popover { right: 0; left: 0; width: min(100%, 320px); }
   .category-filters { gap: 3px; }
   .category-filters button { font-size: 10px; padding: 8px 9px; }
   .events-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

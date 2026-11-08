@@ -5,20 +5,42 @@ import type { Event } from "@/lib/validators/event";
 import type { Category } from "@/lib/validators/category";
 import Icon from "@/components/ui/Icon";
 import EventPoster from "./EventPoster";
+import DateRangePicker from "./DateRangePicker";
 import { datePart, getEventTheme } from "@/lib/event-design";
 
-type Initial = { category?: string; q?: string; period?: string; page?: number };
+type Initial = { category?: string; q?: string; period?: string; from?: string; to?: string; page?: number };
 const PAGE_SIZE = 6;
+
+function isValidDate(value?: string): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function eventDateKey(value: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Qyzylorda",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 
 export default function EventDiscovery({ events, categories, now, initial = {} }: { events: Event[]; categories: Category[]; now: string; initial?: Initial }) {
   const [category, setCategoryRaw] = useState(initial.category && categories.some(item => item.id === initial.category) ? initial.category : "all");
   const [search, setSearchRaw] = useState(initial.q ?? "");
   const [period, setPeriodRaw] = useState(initial.period ?? "all");
+  const [from, setFrom] = useState(isValidDate(initial.from) ? initial.from : "");
+  const [to, setTo] = useState(isValidDate(initial.to) ? initial.to : "");
   const [page, setPage] = useState(initial.page ?? 1);
   const [view, setView] = useState("grid");
   const setCategory = (value: string) => { setCategoryRaw(value); setPage(1); };
   const setSearch = (value: string) => { setSearchRaw(value); setPage(1); };
   const setPeriod = (value: string) => { setPeriodRaw(value); setPage(1); };
+  const setDateRange = (start: string, end: string) => { setFrom(start); setTo(end); setPage(1); };
   const today = new Date(now);
   const upcoming = events.filter(event => new Date(event.startsAt) >= today);
   const displayed = events.filter(event => {
@@ -26,7 +48,9 @@ export default function EventDiscovery({ events, categories, now, initial = {} }
     const matchesSearch = `${event.title} ${event.description} ${event.location}`.toLocaleLowerCase("ru").includes(query);
     const start = new Date(event.startsAt);
     const matchesPeriod = period === "all" || (period === "month" ? datePart(event.startsAt, { month: "numeric", year: "numeric" }) === datePart(now, { month: "numeric", year: "numeric" }) : start >= today && start.getTime() < today.getTime() + 7 * 86400000);
-    return (category === "all" || event.categoryId === category) && matchesSearch && matchesPeriod;
+    const eventDate = eventDateKey(event.startsAt);
+    const matchesRange = (!from || eventDate >= from) && (!to || eventDate <= to);
+    return (category === "all" || event.categoryId === category) && matchesSearch && matchesPeriod && matchesRange;
   });
   const totalPages = Math.max(1, Math.ceil(displayed.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -36,11 +60,13 @@ export default function EventDiscovery({ events, categories, now, initial = {} }
     if (category !== "all") params.set("category", category);
     if (search.trim()) params.set("q", search.trim());
     if (period !== "all") params.set("period", period);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
     if (currentPage > 1) params.set("page", String(currentPage));
     const qs = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
-  }, [category, search, period, currentPage]);
-  const reset = () => { setCategory("all"); setSearch(""); setPeriod("all"); };
+  }, [category, search, period, from, to, currentPage]);
+  const reset = () => { setCategory("all"); setSearch(""); setPeriod("all"); setDateRange("", ""); };
   return <>
     <div className="page-eyebrow"><span><span className="live-dot" /> ТВОЙ КАМПУС. ТВОИ ВОЗМОЖНОСТИ.</span><span>УЧЕБНЫЙ ГОД 2026 / 27</span></div>
     <section className="campus-hero" aria-labelledby="hero-heading">
@@ -56,7 +82,7 @@ export default function EventDiscovery({ events, categories, now, initial = {} }
     <section className="discovery-section" id="events" aria-labelledby="events-heading">
       <div className="section-heading"><div><span className="section-kicker">НЕ ПРОПУСТИ СВОЁ</span><h2 id="events-heading">Афиша кампуса<span>.</span></h2></div><span className="section-note">Встречаемся вне расписания</span></div>
       <div className="discovery-layout"><div className="event-content">
-        <div className="filter-panel"><div className="search-row"><label className="event-search"><Icon name="search" size={19} /><span className="sr-only">Поиск событий</span><input type="search" placeholder="Что тебе интересно?" value={search} onChange={e => setSearch(e.target.value)} /></label><label className="period-select"><Icon name="calendar" size={17} /><span className="sr-only">Период событий</span><select value={period} onChange={e => setPeriod(e.target.value)}><option value="all">Все даты</option><option value="week">Ближайшие 7 дней</option><option value="month">Этот месяц</option></select></label></div><div className="category-filters" aria-label="Категории событий"><button type="button" onClick={() => setCategory("all")} aria-pressed={category === "all"} className={category === "all" ? "selected" : ""}>Все события <span>{events.length}</span></button>{categories.map(item => <button type="button" key={item.id} onClick={() => setCategory(item.id)} aria-pressed={category === item.id} className={category === item.id ? "selected" : ""}>{item.name}</button>)}</div></div>
+        <div className="filter-panel"><div className="search-row"><label className="event-search"><Icon name="search" size={19} /><span className="sr-only">Поиск событий</span><input type="search" placeholder="Что тебе интересно?" value={search} onChange={e => setSearch(e.target.value)} /></label><DateRangePicker from={from} to={to} period={period} now={now} onPeriodChange={setPeriod} onRangeChange={setDateRange} /></div><div className="category-filters" aria-label="Категории событий"><button type="button" onClick={() => setCategory("all")} aria-pressed={category === "all"} className={category === "all" ? "selected" : ""}>Все события <span>{events.length}</span></button>{categories.map(item => <button type="button" key={item.id} onClick={() => setCategory(item.id)} aria-pressed={category === item.id} className={category === item.id ? "selected" : ""}>{item.name}</button>)}</div></div>
         <div className="results-toolbar"><p role="status" aria-live="polite">Найдено событий: <strong>{displayed.length}</strong></p><div className="view-toggle" aria-label="Вид афиши"><button type="button" aria-label="Показать сеткой" aria-pressed={view === "grid"} onClick={() => setView("grid")}><Icon name="grid" size={16} /></button><button type="button" aria-label="Показать списком" aria-pressed={view === "list"} onClick={() => setView("list")}><Icon name="list" size={18} /></button></div></div>
         {displayed.length ? <div className={`events-grid${view === "list" ? " events-list" : ""}`}>{pageItems.map(event => {
           const theme = getEventTheme(event.categoryId);

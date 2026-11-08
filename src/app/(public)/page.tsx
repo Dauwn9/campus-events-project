@@ -2,7 +2,7 @@ import { getCategories } from "@/lib/services/categories";
 import { getEvents } from "@/lib/services/events";
 import EventDiscovery from "@/components/events/EventDiscovery";
 
-type SearchParams = { category?: string; q?: string; period?: string; page?: string };
+type SearchParams = { category?: string; q?: string; period?: string; from?: string; to?: string; page?: string };
 
 export default async function HomePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
@@ -16,6 +16,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         category: params.category,
         q: params.q,
         period: params.period === "week" || params.period === "month" ? params.period : undefined,
+        from: params.from,
+        to: params.to,
         page: Number.parseInt(params.page ?? "1", 10) || 1,
       }}
     />
