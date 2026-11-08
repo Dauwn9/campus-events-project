@@ -13,6 +13,8 @@ import {
   checkInParticipant,
   updateCampusUser,
   updateStudentProfile,
+  archiveAdminEvent,
+  restoreAdminEvent,
   createAccount,
   signIn,
   startSession,
@@ -20,7 +22,6 @@ import {
 } from "@/lib/services/campus";
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
-import type { Role } from "@/lib/roles";
 
 export type ActionState = { error?: string; message?: string };
 export type CheckInState = ActionState & {
@@ -89,20 +90,34 @@ export async function saveEventAction(
 }
 export async function eventOperationAction(
   id: string,
-  operation: "submit" | "approve" | "reject" | "cancel" | "delete",
+  operation:
+    | "submit"
+    | "approve"
+    | "reject"
+    | "cancel"
+    | "delete"
+    | "archive"
+    | "restore",
   _state: ActionState,
   form: FormData,
 ): Promise<ActionState> {
   const actor = await getCurrentUser();
   try {
-    changeEventStatus(
-      actor,
-      id,
-      z
-        .enum(["submit", "approve", "reject", "cancel", "delete"])
-        .parse(operation),
-      text(form, "reason"),
-    );
+    const validatedOperation = z
+      .enum([
+        "submit",
+        "approve",
+        "reject",
+        "cancel",
+        "delete",
+        "archive",
+        "restore",
+      ])
+      .parse(operation);
+    if (validatedOperation === "archive") archiveAdminEvent(actor, id);
+    else if (validatedOperation === "restore") restoreAdminEvent(actor, id);
+    else
+      changeEventStatus(actor, id, validatedOperation, text(form, "reason"));
     refresh();
     return { message: "Изменения сохранены." };
   } catch (error) {
@@ -193,8 +208,9 @@ export async function updateUserAction(
     updateCampusUser(
       actor,
       id,
-      text(form, "role") as Role,
+      text(form, "role"),
       form.get("blocked") === "on",
+      text(form, "banDuration"),
     );
     refresh();
     return { message: "Права пользователя сохранены." };

@@ -21,6 +21,7 @@ export async function createComment(input: {
       !store.events.some(
         (e) =>
           e.id === parsed.eventId &&
+          !e.archivedAt &&
           ["PUBLISHED", "FINISHED"].includes(e.status),
       )
     )

@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ROLES, type Role } from "./roles";
 import { readStore } from "./services/demo-store";
-import { sessionUser } from "./services/campus";
+import { isCampusUserBlocked, sessionUser } from "./services/campus";
 
 export async function getCurrentUser() {
   const store = await cookies();
@@ -25,7 +25,11 @@ export async function getCurrentUser() {
           : "";
   const user =
     signedIn ??
-    (id ? readStore().users.find((u) => u.id === id && !u.blocked) : undefined);
+    (id
+      ? readStore().users.find(
+          (u) => u.id === id && !isCampusUserBlocked(u),
+        )
+      : undefined);
   return user
     ? {
         id: user.id,

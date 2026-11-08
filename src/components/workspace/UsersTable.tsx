@@ -9,6 +9,7 @@ type Row = {
   email: string;
   role: string;
   blocked: boolean;
+  blockedUntilLabel: string;
   group: string;
 };
 export default function UsersTable({ users }: { users: Row[] }) {
@@ -71,6 +72,9 @@ export default function UsersTable({ users }: { users: Row[] }) {
                 <small>
                   {user.group || "Сотрудник / организатор"}
                   {fixed ? " · Демо-аккаунт" : ""}
+                  {user.blockedUntilLabel
+                    ? ` · Блокировка: ${user.blockedUntilLabel}`
+                    : ""}
                 </small>
               </div>
               <ActionForm action={updateUserAction.bind(null, user.id)}>
@@ -95,6 +99,24 @@ export default function UsersTable({ users }: { users: Row[] }) {
                       disabled={fixed}
                     />
                     Заблокирован
+                  </label>
+                  <label>
+                    <span className="sr-only">
+                      Срок блокировки: {user.email}
+                    </span>
+                    <select
+                      name="banDuration"
+                      defaultValue={user.blocked ? "keep" : "7d"}
+                      disabled={fixed}
+                    >
+                      {user.blocked && (
+                        <option value="keep">Не менять срок</option>
+                      )}
+                      <option value="1d">На 1 день</option>
+                      <option value="7d">На 7 дней</option>
+                      <option value="30d">На 30 дней</option>
+                      <option value="permanent">Навсегда</option>
+                    </select>
                   </label>
                   <button
                     className="workspace-button secondary"

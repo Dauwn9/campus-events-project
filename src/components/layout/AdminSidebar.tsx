@@ -3,8 +3,10 @@ import Link from "next/link";
 const links = [
   { label: "Обзор", href: "/admin" },
   { label: "Модерация", href: "/admin/moderation" },
+  { label: "Архив событий", href: "/admin/archive" },
   { label: "Категории", href: "/admin/categories" },
   { label: "Пользователи", href: "/admin/users" },
+  { label: "История изменений", href: "/admin/history" },
 ];
 
 export default function AdminSidebar() {

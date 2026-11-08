@@ -5,8 +5,9 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { ServiceError } from "@/lib/services/errors";
 import {
+  archiveCategory,
   createCategory,
-  deleteCategory,
+  restoreCategory,
   updateCategory,
 } from "@/lib/services/categories";
 import { createComment } from "@/lib/services/comments";
@@ -85,23 +86,43 @@ export async function updateCategoryAction(formData: FormData) {
   redirect(`${categoryPath}?success=updated`);
 }
 
-export async function deleteCategoryAction(formData: FormData) {
+export async function archiveCategoryAction(formData: FormData) {
   await requireRole("ADMIN");
   const id = formData.get("id");
-  if (typeof id !== "string" || id.length === 0) {
+  if (typeof id !== "string" || !id) {
     redirect(`${categoryPath}?error=not-found`);
   }
-
   try {
-    const deleted = await deleteCategory(id);
-    if (!deleted) redirect(`${categoryPath}?error=not-found`);
+    await archiveCategory(id);
   } catch (error) {
     redirectWithCategoryError(error);
   }
   revalidatePath(categoryPath);
+  revalidatePath("/admin/archive");
   revalidatePath("/");
-  revalidatePath("/events/[id]", "page");
-  redirect(`${categoryPath}?success=deleted`);
+  redirect(`${categoryPath}?success=archived`);
+}
+
+export async function restoreCategoryAction(formData: FormData) {
+  await requireRole("ADMIN");
+  const id = formData.get("id");
+  if (typeof id !== "string" || !id) {
+    redirect("/admin/archive?tab=categories&error=not-found");
+  }
+  try {
+    await restoreCategory(id);
+  } catch (error) {
+    if (error instanceof ServiceError) {
+      redirect(
+        `/admin/archive?tab=categories&error=${encodeURIComponent(error.code)}`,
+      );
+    }
+    throw error;
+  }
+  revalidatePath(categoryPath);
+  revalidatePath("/admin/archive");
+  revalidatePath("/");
+  redirect("/admin/archive?tab=categories&success=restored");
 }
 
 export async function addCommentAction(formData: FormData) {

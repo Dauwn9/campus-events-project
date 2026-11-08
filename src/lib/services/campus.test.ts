@@ -16,12 +16,17 @@ import {
   checkInParticipant,
   toggleStudentFavorite,
   updateCampusUser,
+  isCampusUserBlocked,
+  archiveAdminEvent,
+  restoreAdminEvent,
   createAccount,
   signIn,
   sessionUser,
   revokeSession,
   updateStudentProfile,
 } from "./campus";
+import { getEventById, getEvents } from "./events";
+import { getCategories } from "./categories";
 
 const file = join(process.cwd(), "work", `qa-state-${randomUUID()}.json`);
 process.env.CAMPUS_DATA_FILE = file;
@@ -97,6 +102,65 @@ test("Модерация: попытка прямой публикации ос�
     () => changeEventStatus(admin, event.id, "approve"),
     /обработано/,
   );
+});
+test("История события фиксирует конкретное поле, автора и прежнее/новое значение", () => {
+  const event = makeEvent();
+  saveCampusEvent(
+    org,
+    { ...event, title: "Обновлённое название события" },
+    event.id,
+  );
+  const titleChange = readStore().auditLog.find(
+    (entry) =>
+      entry.entityId === event.id &&
+      entry.field === "title" &&
+      entry.oldValue === event.title,
+  );
+  assert.ok(titleChange);
+  assert.equal(titleChange.newValue, "Обновлённое название события");
+  assert.equal(titleChange.actorId, org.id);
+  assert.equal(titleChange.actorName, "Центр студенческих инициатив");
+});
+test("Архив скрывает событие с афиши, сохраняет регистрации и позволяет восстановить", async () => {
+  const event = published(10, 2);
+  const registration = registerStudent(student, event.id);
+  archiveAdminEvent(admin, event.id);
+
+  assert.equal(await getEventById(event.id), null);
+  assert.equal(
+    (await getEvents({ status: "PUBLISHED" })).some(
+      (item) => item.id === event.id,
+    ),
+    false,
+  );
+  assert.throws(() => registerStudent(second, event.id), /недоступно/);
+  assert.ok(
+    readStore().registrations.some((item) => item.id === registration.id),
+  );
+  assert.throws(
+    () => saveCampusEvent(org, event, event.id),
+    /находится в архиве/,
+  );
+
+  restoreAdminEvent(admin, event.id);
+  assert.equal((await getEventById(event.id))?.id, event.id);
+  assert.ok(
+    readStore().auditLog.some(
+      (entry) => entry.entityId === event.id && entry.field === "archivedAt",
+    ),
+  );
+});
+test("Архивная категория не попадает в выбор категорий и не назначается событию", async () => {
+  const event = makeEvent();
+  changeStore((store) => {
+    store.categories.find((category) => category.id === event.categoryId)!.archivedAt =
+      new Date().toISOString();
+  });
+  assert.equal(
+    (await getCategories()).some((category) => category.id === event.categoryId),
+    false,
+  );
+  assert.throws(() => saveCampusEvent(org, event, event.id), /категорию/);
 });
 test("Вместимость: параллельные запросы не превышают лимит, отмена продвигает очередь", async () => {
   const event = published();
@@ -248,6 +312,33 @@ test("Профиль, избранное, роли и блокировка: из
   );
   revokeSession(token);
   assert.equal(readStore().sessions.length, 0);
+});
+test("Срок блокировки ограничивает доступ и автоматически снимается по истечении", () => {
+  const account = createAccount({
+    name: "Тест блокировки",
+    email: "ban-test@example.com",
+    password: "Different2026!",
+  });
+  const token = signIn("ban-test@example.com", "Different2026!");
+  updateCampusUser(admin, account.id, "STUDENT", true, "1d");
+  const blockedUser = readStore().users.find((user) => user.id === account.id)!;
+  assert.equal(isCampusUserBlocked(blockedUser), true);
+  assert.ok(Date.parse(blockedUser.blockedUntil!) > Date.now());
+  assert.equal(sessionUser(token), undefined);
+
+  changeStore((store) => {
+    store.users.find((user) => user.id === account.id)!.blockedUntil =
+      new Date(Date.now() - 1000).toISOString();
+  });
+  const expiredUser = readStore().users.find((user) => user.id === account.id)!;
+  assert.equal(isCampusUserBlocked(expiredUser), false);
+  assert.equal(sessionUser(token)?.id, account.id);
+  assert.ok(
+    readStore().auditLog.some(
+      (entry) =>
+        entry.entityId === account.id && entry.field === "blockedUntil",
+    ),
+  );
 });
 test("Серверные проверки дат, вместимости и приоритетной записи", () => {
   assert.throws(() => makeEvent(-10), /будущем/);

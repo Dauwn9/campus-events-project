@@ -29,9 +29,22 @@ export type CampusUser = {
   group: string;
   school: string;
   blocked: boolean;
+  blockedUntil?: string | null;
   passwordHash?: string;
 };
 export type CampusRegistration = Registration & { shortCode: string };
+export type CampusAuditEntry = {
+  id: string;
+  occurredAt: string;
+  actorId: string;
+  actorName: string;
+  entityType: "EVENT" | "USER" | "CATEGORY";
+  entityId: string;
+  entityLabel: string;
+  field: string;
+  oldValue: string;
+  newValue: string;
+};
 export type CampusStore = {
   version: 1;
   qrSecret: string;
@@ -42,6 +55,7 @@ export type CampusStore = {
   favorites: { userId: string; eventId: string; createdAt: string }[];
   comments: Comment[];
   sessions: { hash: string; userId: string; expires: number }[];
+  auditLog: CampusAuditEntry[];
 };
 export function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -134,6 +148,7 @@ function seed(): CampusStore {
     favorites: [],
     comments: [],
     sessions: [],
+    auditLog: [],
   };
   store.events.find((e) => e.id === "evt-10")!.status = "PENDING";
   for (const event of store.events) {
@@ -182,6 +197,10 @@ const initial = globalThis as typeof globalThis & {
   campusDemoSeed?: CampusStore;
 };
 function consistentState(store: CampusStore) {
+  store.auditLog ??= [];
+  for (const user of store.users) user.blockedUntil ??= null;
+  for (const event of store.events) event.archivedAt ??= null;
+  for (const category of store.categories) category.archivedAt ??= null;
   for (const event of store.events) {
     const registrations = store.registrations.filter(
       (r) => r.eventId === event.id,

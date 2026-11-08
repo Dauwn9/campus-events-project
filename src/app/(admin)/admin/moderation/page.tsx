@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { requireRole } from "@/lib/auth";
-import { readStore } from "@/lib/services/demo-store";
 import { eventOperationAction } from "@/app/campus-actions";
+import { getAdminModeration } from "@/lib/services/admin";
 import {
   PageHeading,
   Stats,
@@ -16,17 +15,11 @@ export default async function ModerationPage({
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  await requireRole("ADMIN");
   const query = await searchParams;
-  const store = readStore();
-  const pending = store.events.filter((e) => e.status === "PENDING");
+  const { pending, decisions, categories, organizers, counts } =
+    await getAdminModeration();
   const tab = query.tab === "history" ? "history" : "pending";
-  const events =
-    tab === "pending"
-      ? pending
-      : store.events.filter((e) =>
-          ["PUBLISHED", "REJECTED"].includes(e.status),
-        );
+  const events = tab === "pending" ? pending : decisions;
   return (
     <>
       <PageHeading
@@ -36,15 +29,9 @@ export default async function ModerationPage({
       />
       <Stats
         items={[
-          { label: "Ожидают проверки", value: pending.length },
-          {
-            label: "Опубликовано",
-            value: store.events.filter((e) => e.status === "PUBLISHED").length,
-          },
-          {
-            label: "Отклонено",
-            value: store.events.filter((e) => e.status === "REJECTED").length,
-          },
+          { label: "Ожидают проверки", value: counts.pending },
+          { label: "Опубликовано", value: counts.published },
+          { label: "Отклонено", value: counts.rejected },
         ]}
       />
       <nav className="workspace-tabs" aria-label="Очередь модерации">
@@ -71,11 +58,10 @@ export default async function ModerationPage({
               </div>
               <div className="moderation-body">
                 <span className="section-kicker">
-                  {
-                    store.categories.find((c) => c.id === event.categoryId)
-                      ?.name
-                  }{" "}
-                  · {store.users.find((u) => u.id === event.organizerId)?.name}
+                  {categories.find((category) => category.id === event.categoryId)
+                    ?.name ?? "Без категории"}{" "}
+                  · {organizers.find((user) => user.id === event.organizerId)
+                    ?.name ?? "Неизвестный организатор"}
                 </span>
                 <h2>{event.title}</h2>
                 <p>{event.description}</p>
@@ -99,8 +85,9 @@ export default async function ModerationPage({
                     Причина отказа: {event.rejectionReason}
                   </p>
                 )}
-                {event.status === "PENDING" ? (
-                  <div className="moderation-actions">
+                <div className="moderation-actions">
+                  {event.status === "PENDING" ? (
+                    <>
                     <ActionForm
                       action={eventOperationAction.bind(
                         null,
@@ -135,12 +122,25 @@ export default async function ModerationPage({
                         Отклонить
                       </button>
                     </ActionForm>
-                  </div>
-                ) : (
-                  <Link className="text-link" href={`/events/${event.id}`}>
-                    Открыть событие →
-                  </Link>
-                )}
+                    </>
+                  ) : (
+                    <Link className="text-link" href={`/events/${event.id}`}>
+                      Открыть событие →
+                    </Link>
+                  )}
+                  <ActionForm
+                    action={eventOperationAction.bind(
+                      null,
+                      event.id,
+                      "archive",
+                    )}
+                    confirm="Переместить событие в архив? Его можно будет восстановить."
+                  >
+                    <button className="workspace-button secondary">
+                      В архив
+                    </button>
+                  </ActionForm>
+                </div>
               </div>
             </article>
           ))}

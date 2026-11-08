@@ -1,25 +1,28 @@
 import {
+  archiveCategoryAction,
   createCategoryAction,
-  deleteCategoryAction,
   updateCategoryAction,
 } from "@/app/admin-actions";
+import Link from "next/link";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import EmptyState from "@/components/ui/EmptyState";
 import Input from "@/components/ui/Input";
-import { getCategories } from "@/lib/services/categories";
+import { getAdminCategories } from "@/lib/services/categories";
 
 const errors: Record<string, string> = {
   invalid: "Введите название категории длиной от 2 до 50 символов.",
   ALREADY_EXISTS: "Категория с таким названием уже существует.",
-  CATEGORY_IN_USE: "Нельзя удалить категорию, в которой есть события.",
+  CATEGORY_IN_USE:
+    "Сначала архивируйте или перенесите события этой категории.",
+  FORBIDDEN: "Сначала восстановите категорию из архива.",
   "not-found": "Категория не найдена.",
 };
 
 const successes: Record<string, string> = {
   created: "Категория создана.",
   updated: "Категория обновлена.",
-  deleted: "Категория удалена.",
+  archived: "Категория перемещена в архив. События и история сохранены.",
 };
 
 export default async function CategoriesPage({
@@ -27,7 +30,11 @@ export default async function CategoriesPage({
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const [categories, query] = await Promise.all([getCategories(), searchParams]);
+  const [allCategories, query] = await Promise.all([
+    getAdminCategories(),
+    searchParams,
+  ]);
+  const categories = allCategories.filter((category) => !category.archivedAt);
   const errorMessage = query.error ? errors[query.error] : undefined;
   const successMessage = query.success ? successes[query.success] : undefined;
 
@@ -37,6 +44,9 @@ export default async function CategoriesPage({
         <h1 className="text-2xl font-bold">Категории</h1>
         <p className="mt-1 text-sm text-muted">Управление категориями мероприятий.</p>
       </div>
+      <Link className="text-link" href="/admin/archive?tab=categories">
+        Архив категорий ({allCategories.length - categories.length}) →
+      </Link>
 
       {errorMessage && (
         <p role="alert" className="rounded-control bg-red-50 p-3 text-sm text-red-800">
@@ -92,14 +102,17 @@ export default async function CategoriesPage({
                     Сохранить
                   </Button>
                 </form>
-                <form action={deleteCategoryAction}>
+                <span className="text-sm text-muted">
+                  {category.eventCount} событий
+                </span>
+                <form action={archiveCategoryAction}>
                   <input type="hidden" name="id" value={category.id} />
                   <Button
                     type="submit"
                     className="w-full bg-red-700 hover:bg-red-800 sm:w-auto"
-                    aria-label={`Удалить категорию ${category.name}`}
+                    aria-label={`Архивировать категорию ${category.name}`}
                   >
-                    Удалить
+                    В архив
                   </Button>
                 </form>
               </Card>
