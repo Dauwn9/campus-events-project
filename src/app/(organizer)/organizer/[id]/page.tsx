@@ -1,3 +1,9 @@
+import {
+  getOrganizerEventHistory,
+  eventHistoryLabel,
+  eventHistoryValue,
+  formatHistoryDate,
+} from "@/lib/services/event-history";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
@@ -41,6 +47,7 @@ export default async function OrganizerEventPage({
       shortCode: r.shortCode,
     };
   });
+  const history = await getOrganizerEventHistory(id);
   return (
     <>
       <Link className="workspace-back" href="/organizer">
@@ -112,6 +119,40 @@ export default async function OrganizerEventPage({
       </div>
       <Panel title="Участники и посещаемость">
         <ParticipantsTable participants={participants} eventId={id} />
+      </Panel>
+      <Panel title="История изменений">
+        {!history.length ? (
+          <p className="table-empty">Изменений пока нет.</p>
+        ) : (
+          <ol className="space-y-3">
+            {history.map((entry) => (
+              <li
+                className="rounded-control border border-border p-4"
+                key={entry.id}
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium">
+                    {eventHistoryLabel(entry.field)}
+                  </span>
+                  <time
+                    className="text-sm text-muted"
+                    dateTime={entry.occurredAt}
+                  >
+                    {formatHistoryDate(entry.occurredAt)}
+                  </time>
+                </div>
+                <p className="mt-1 text-sm text-muted">{entry.actorName}</p>
+                <p className="mt-1 break-words text-sm">
+                  <span className="text-muted">Было:</span>{" "}
+                  {eventHistoryValue(entry.field, entry.oldValue)}
+                  <span className="px-2 text-muted">→</span>
+                  <span className="text-muted">Стало:</span>{" "}
+                  {eventHistoryValue(entry.field, entry.newValue)}
+                </p>
+              </li>
+            ))}
+          </ol>
+        )}
       </Panel>
       <div className="workspace-panel event-danger-zone">
         <div>
