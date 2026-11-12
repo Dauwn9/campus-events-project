@@ -28,6 +28,7 @@ export type CampusUser = {
   role: Exclude<Role, "GUEST">;
   group: string;
   school: string;
+  priorityStatus?: "STANDARD" | "ACTIVE";
   blocked: boolean;
   blockedUntil?: string | null;
   passwordHash?: string;
@@ -80,6 +81,7 @@ function seed(): CampusStore {
       role: "STUDENT",
       group: "IT-23-1",
       school: "Высшая школа информационных технологий",
+      priorityStatus: "ACTIVE",
       blocked: false,
       passwordHash: hashPassword("Campus2026!"),
     },
@@ -154,7 +156,11 @@ function seed(): CampusStore {
   for (const event of store.events) {
     for (let n = 0; n < event.registeredCount; n++) {
       const id = `seed-${event.id}-${n}`;
-      const checkedIn = event.status === "FINISHED" && n % 4 !== 0;
+      const isDemoVisit =
+        n === 0 &&
+        ["evt-1", "evt-2", "evt-3"].includes(event.id) &&
+        event.status === "FINISHED";
+      const checkedIn = event.status === "FINISHED" && (isDemoVisit || n % 4 !== 0);
       store.registrations.push({
         id,
         userId: n === 0 ? "student-demo" : `student-${n}`,
@@ -167,6 +173,12 @@ function seed(): CampusStore {
         checkedInById: checkedIn ? event.organizerId : null,
       });
     }
+  }
+  const priorityEvent = store.events.find((event) => event.id === "evt-5");
+  if (priorityEvent) {
+    priorityEvent.registrationOpensAt = new Date(Date.now() + 2 * 3600000).toISOString();
+    priorityEvent.priorityWindowHours = 12;
+    priorityEvent.priorityMembers = ["student-demo", "student-2"];
   }
   store.favorites = ["evt-5", "evt-6", "evt-7"].map((eventId) => ({
     userId: "student-demo",
@@ -202,6 +214,7 @@ function consistentState(store: CampusStore) {
   for (const event of store.events) event.archivedAt ??= null;
   for (const category of store.categories) category.archivedAt ??= null;
   for (const event of store.events) {
+    event.priorityMembers ??= [];
     const registrations = store.registrations.filter(
       (r) => r.eventId === event.id,
     );
@@ -214,6 +227,17 @@ function consistentState(store: CampusStore) {
     event.registeredCount = registrations.filter(
       (r) => r.status === "CONFIRMED",
     ).length;
+  }
+  for (const user of store.users) {
+    if (user.role === "STUDENT") {
+      const recentVisits = store.registrations.filter(
+        (r) => r.userId === user.id && r.checkedInAt,
+      ).length;
+      user.priorityStatus =
+        recentVisits >= 3 || user.priorityStatus === "ACTIVE"
+          ? "ACTIVE"
+          : "STANDARD";
+    }
   }
   return store;
 }

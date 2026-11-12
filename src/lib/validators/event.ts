@@ -26,6 +26,7 @@ export const eventSchema = z.object({
   rejectionReason: z.string().optional(),
   registrationOpensAt: z.iso.datetime().optional(),
   priorityWindowHours: z.number().int().min(0).max(168).optional(),
+  priorityMembers: z.array(z.string()).optional(),
 });
 
 export const eventInputSchema = eventSchema

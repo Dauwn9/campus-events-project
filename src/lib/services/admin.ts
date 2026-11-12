@@ -1,5 +1,5 @@
 import { requireRole } from "@/lib/auth";
-import { readStore } from "./demo-store";
+import { readStore, type CampusAuditEntry } from "./demo-store";
 import { isCampusUserBlocked } from "./campus";
 import type { Event } from "@/lib/validators/event";
 
@@ -39,9 +39,13 @@ export async function getAdminUsers() {
   );
 }
 
-export async function getAdminAuditLog() {
+export async function getAdminAuditLog(): Promise<Array<CampusAuditEntry & { actorRole?: string | null }>> {
   await requireRole("ADMIN");
-  return readStore().auditLog.slice(-200).reverse();
+  const store = readStore();
+  return store.auditLog.slice(-200).reverse().map((entry) => ({
+    ...entry,
+    actorRole: store.users.find((user) => user.id === entry.actorId)?.role ?? null,
+  }));
 }
 
 export async function getAdminArchivedEvents() {

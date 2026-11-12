@@ -108,6 +108,27 @@ export function ownedEvent(store: CampusStore, actor: Actor, eventId: string) {
   return event;
 }
 
+export function getStudentPriorityStatus(
+  store: CampusStore,
+  userId: string,
+): "STANDARD" | "ACTIVE" {
+  const user = store.users.find((item) => item.id === userId);
+  if (!user) return "STANDARD";
+  const visits = store.registrations.filter(
+    (registration) => registration.userId === userId && registration.checkedInAt,
+  ).length;
+  return user.priorityStatus === "ACTIVE" || visits >= 3 ? "ACTIVE" : "STANDARD";
+}
+
+export function isPriorityEventMember(
+  store: CampusStore,
+  userId: string,
+  eventId: string,
+) {
+  const event = store.events.find((item) => item.id === eventId);
+  return Boolean(event?.priorityMembers?.includes(userId));
+}
+
 export function archiveAdminEvent(actor: Actor, eventId: string) {
   return changeStore((store) => {
     assertRole(actor, ["ADMIN"], store);
@@ -217,6 +238,7 @@ export function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
       archivedAt: previous?.archivedAt ?? null,
       organizerId: actor.id,
       registeredCount: previous?.registeredCount ?? 0,
+      priorityMembers: previous?.priorityMembers ?? [],
       status:
         parsed.status === "DRAFT" ? ("DRAFT" as const) : ("PENDING" as const),
       rejectionReason: undefined,
@@ -396,20 +418,27 @@ export function registerStudent(actor: Actor, eventId: string) {
       new Date(event.registrationOpensAt) > new Date()
     )
       throw new ServiceError("NOT_OPEN_YET", "Запись ещё не открылась.");
-    const visits = store.registrations.filter(
-      (r) => r.userId === actor.id && r.checkedInAt,
-    ).length;
+    const priorityOpenAt =
+      event.registrationOpensAt && event.priorityWindowHours
+        ? Date.parse(event.registrationOpensAt) +
+          event.priorityWindowHours * 3600000
+        : null;
+    const isActive = getStudentPriorityStatus(store, actor.id) === "ACTIVE";
+    const isPriorityMember = isPriorityEventMember(store, actor.id, event.id);
     if (
       event.registrationOpensAt &&
-      event.priorityWindowHours &&
-      Date.now() <
-        Date.parse(event.registrationOpensAt) +
-          event.priorityWindowHours * 3600000 &&
-      visits < 3
+      Date.parse(event.registrationOpensAt) > Date.now()
+    )
+      throw new ServiceError("NOT_OPEN_YET", "Запись ещё не открылась.");
+    if (
+      priorityOpenAt &&
+      Date.now() < priorityOpenAt &&
+      !isActive &&
+      !isPriorityMember
     )
       throw new ServiceError(
         "NOT_OPEN_YET",
-        "Пока действует приоритетная запись для участников с 3 посещениями.",
+        "Пока действует приоритетная запись для активных студентов и участников списка организатора.",
       );
     const id = current?.id ?? `reg-${randomUUID()}`;
     const status =
@@ -501,9 +530,9 @@ export function checkInParticipant(
       (r) => r.shortCode === code.toUpperCase() || r.qrToken === code,
     );
     if (!registration)
-      throw new ServiceError("NOT_FOUND", "Код не распознан.");
+      throw new ServiceError("NOT_FOUND", "Запись не найдена.");
     if (registration.eventId !== eventId || registration.status !== "CONFIRMED")
-      throw new ServiceError("NOT_FOUND", "Нет записи на это событие.");
+      throw new ServiceError("NOT_FOUND", "Запись не найдена на это событие.");
     const participant = store.users.find((u) => u.id === registration.userId)!;
     if (isCampusUserBlocked(participant))
       throw new ServiceError("FORBIDDEN", "Участник заблокирован.");
@@ -524,7 +553,10 @@ export function checkInParticipant(
       };
     const now = Date.now();
     if (now < Date.parse(event.startsAt) - 3600000)
-      throw new ServiceError("NOT_OPEN_YET", "Вход ещё не открыт.");
+      throw new ServiceError(
+        "NOT_OPEN_YET",
+        "Вход ещё не открыт: за час до начала события.",
+      );
     if (now > Date.parse(event.endsAt))
       throw new ServiceError("NOT_OPEN_YET", "Вход уже закрыт.");
     registration.checkedInAt = new Date().toISOString();

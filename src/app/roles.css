@@ -376,6 +376,7 @@ button:disabled {
   align-items: center;
   gap: 14px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 .workspace-search {
   display: flex;
@@ -402,6 +403,100 @@ button:disabled {
 .workspace .table-filters > select {
   max-width: 215px;
   width: 28%;
+  min-width: 150px;
+}
+.history-filters {
+  align-items: stretch;
+}
+.history-filters .workspace-search {
+  min-width: 210px;
+}
+.history-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: -8px;
+  margin-bottom: 12px;
+}
+.history-date-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f6f7fb;
+  border: 1px solid #dfe4ef;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #59677f;
+}
+.history-date-field input {
+  border: 0;
+  background: transparent;
+  min-width: 120px;
+  outline: none;
+  color: #2f3b56;
+}
+.history-result-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #59677f;
+}
+.history-entity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(114, 114, 169, 0.12);
+  border: 1px solid rgba(114, 114, 169, 0.25);
+  color: #2d2f59;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.history-entity-pill button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.audit-history-list {
+  display: grid;
+  gap: 12px;
+}
+.history-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #d9deeb;
+  background: #f7f9ff;
+  color: #384b74;
+  transition: all 0.2s ease;
+}
+.history-link-button:hover {
+  border-color: #b8c0da;
+  background: #eef3ff;
+  color: #1d2d4a;
+}
+.history-link-button:focus-visible {
+  outline: 2px solid #7272a9;
+  outline-offset: 2px;
+}
+.history-link-button svg {
+  width: 16px;
+  height: 16px;
+}
+.user-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .workspace-table-wrap {
   overflow-x: auto;
@@ -481,7 +576,8 @@ button:disabled {
   white-space: nowrap;
 }
 .status-published,
-.status-confirmed {
+.status-confirmed,
+.status-active {
   color: #3d684f;
   background: #e2eee5;
 }

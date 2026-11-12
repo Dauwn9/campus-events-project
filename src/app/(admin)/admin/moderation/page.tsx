@@ -10,6 +10,7 @@ import {
 import ActionForm from "@/components/workspace/ActionForm";
 import EventPoster from "@/components/events/EventPoster";
 import { datePart } from "@/lib/event-design";
+import HistoryLinkButton from "@/components/admin/HistoryLinkButton";
 export default async function ModerationPage({
   searchParams,
 }: {
@@ -88,58 +89,61 @@ export default async function ModerationPage({
                 <div className="moderation-actions">
                   {event.status === "PENDING" ? (
                     <>
-                    <ActionForm
-                      action={eventOperationAction.bind(
-                        null,
-                        event.id,
-                        "approve",
-                      )}
-                    >
-                      <button className="workspace-button">
-                        Одобрить и опубликовать
-                      </button>
-                    </ActionForm>
-                    <ActionForm
-                      action={eventOperationAction.bind(
-                        null,
-                        event.id,
-                        "reject",
-                      )}
-                    >
-                      <label>
-                        <span className="sr-only">
-                          Причина отказа: {event.title}
-                        </span>
-                        <input
-                          name="reason"
-                          placeholder="Причина отказа"
-                          required
-                          minLength={5}
-                          maxLength={1000}
-                        />
-                      </label>
-                      <button className="workspace-button secondary danger">
-                        Отклонить
-                      </button>
-                    </ActionForm>
+                      <ActionForm
+                        action={eventOperationAction.bind(
+                          null,
+                          event.id,
+                          "approve",
+                        )}
+                      >
+                        <button className="workspace-button">
+                          Одобрить и опубликовать
+                        </button>
+                      </ActionForm>
+                      <ActionForm
+                        action={eventOperationAction.bind(
+                          null,
+                          event.id,
+                          "reject",
+                        )}
+                      >
+                        <label>
+                          <span className="sr-only">
+                            Причина отказа: {event.title}
+                          </span>
+                          <input
+                            name="reason"
+                            placeholder="Причина отказа"
+                            required
+                            minLength={5}
+                            maxLength={1000}
+                          />
+                        </label>
+                        <button className="workspace-button secondary danger">
+                          Отклонить
+                        </button>
+                      </ActionForm>
                     </>
                   ) : (
                     <Link className="text-link" href={`/events/${event.id}`}>
                       Открыть событие →
                     </Link>
                   )}
-                  <ActionForm
-                    action={eventOperationAction.bind(
-                      null,
-                      event.id,
-                      "archive",
-                    )}
-                    confirm="Переместить событие в архив? Его можно будет восстановить."
-                  >
-                    <button className="workspace-button secondary">
-                      В архив
-                    </button>
-                  </ActionForm>
+                  <div className="flex items-center gap-2">
+                    <HistoryLinkButton entityType="EVENT" entityId={event.id} />
+                    <ActionForm
+                      action={eventOperationAction.bind(
+                        null,
+                        event.id,
+                        "archive",
+                      )}
+                      confirm="Переместить событие в архив? Его можно будет восстановить."
+                    >
+                      <button className="workspace-button secondary">
+                        В архив
+                      </button>
+                    </ActionForm>
+                  </div>
                 </div>
               </div>
             </article>

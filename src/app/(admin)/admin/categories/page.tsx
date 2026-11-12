@@ -10,6 +10,7 @@ import Input from "@/components/ui/Input";
 import Icon from "@/components/ui/Icon";
 import { getAdminCategories } from "@/lib/services/categories";
 import { PageHeading, Stats } from "@/components/workspace/WorkspaceUI";
+import HistoryLinkButton from "@/components/admin/HistoryLinkButton";
 
 const errors: Record<string, string> = {
   invalid: "Введите название категории длиной от 2 до 50 символов.",
@@ -194,16 +195,19 @@ export default async function CategoriesPage({
                         {category.eventCount === 1 ? "событие" : "событий"}
                       </p>
                     </div>
-                    <form action={archiveCategoryAction}>
-                      <input type="hidden" name="id" value={category.id} />
-                      <Button
-                        type="submit"
-                        className="workspace-button secondary danger min-h-11 w-full sm:w-auto"
-                        aria-label={`Архивировать категорию ${category.name}`}
-                      >
-                        В архив
-                      </Button>
-                    </form>
+                    <div className="flex items-center gap-2">
+                      <HistoryLinkButton entityType="CATEGORY" entityId={category.id} />
+                      <form action={archiveCategoryAction}>
+                        <input type="hidden" name="id" value={category.id} />
+                        <Button
+                          type="submit"
+                          className="workspace-button secondary danger min-h-11 w-full sm:w-auto"
+                          aria-label={`Архивировать категорию ${category.name}`}
+                        >
+                          В архив
+                        </Button>
+                      </form>
+                    </div>
                   </div>
                 </article>
               </li>
