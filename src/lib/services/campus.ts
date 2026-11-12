@@ -491,17 +491,17 @@ export function checkInParticipant(
         "FORBIDDEN",
         "Вход доступен только на опубликованное событие.",
       );
-    const code = z.string().trim().min(4).max(500).parse(rawCode);
+    const parsedCode = z.string().trim().min(4).max(500).safeParse(rawCode);
+    if (!parsedCode.success)
+      throw new ServiceError("NOT_FOUND", "Код не распознан.");
+    const code = parsedCode.data;
     const registration = store.registrations.find(
-      (r) =>
-        r.eventId === eventId &&
-        (r.shortCode === code.toUpperCase() || r.qrToken === code),
+      (r) => r.shortCode === code.toUpperCase() || r.qrToken === code,
     );
-    if (!registration || registration.status !== "CONFIRMED")
-      throw new ServiceError(
-        "NOT_FOUND",
-        "Действующая запись на выбранное событие не найдена.",
-      );
+    if (!registration)
+      throw new ServiceError("NOT_FOUND", "Код не распознан.");
+    if (registration.eventId !== eventId || registration.status !== "CONFIRMED")
+      throw new ServiceError("NOT_FOUND", "Нет записи на это событие.");
     const participant = store.users.find((u) => u.id === registration.userId)!;
     if (isCampusUserBlocked(participant))
       throw new ServiceError("FORBIDDEN", "Участник заблокирован.");
@@ -512,7 +512,7 @@ export function checkInParticipant(
         expected.length !== actual.length ||
         !timingSafeEqual(expected, actual)
       )
-        throw new ServiceError("FORBIDDEN", "Подпись QR недействительна.");
+        throw new ServiceError("FORBIDDEN", "Код не распознан.");
     }
     if (registration.checkedInAt)
       return {
@@ -521,14 +521,10 @@ export function checkInParticipant(
         at: registration.checkedInAt,
       };
     const now = Date.now();
-    if (
-      now < Date.parse(event.startsAt) - 3600000 ||
-      now > Date.parse(event.endsAt)
-    )
-      throw new ServiceError(
-        "NOT_OPEN_YET",
-        "Вход открыт за час до начала и до окончания события.",
-      );
+    if (now < Date.parse(event.startsAt) - 3600000)
+      throw new ServiceError("NOT_OPEN_YET", "Вход ещё не открыт.");
+    if (now > Date.parse(event.endsAt))
+      throw new ServiceError("NOT_OPEN_YET", "Вход уже закрыт.");
     registration.checkedInAt = new Date().toISOString();
     registration.checkedInById = actor.id;
     return {
