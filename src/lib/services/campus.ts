@@ -16,6 +16,8 @@ import {
   type CampusAuditEntry,
 } from "./demo-store";
 import { ServiceError } from "./errors";
+import { profileInputSchema } from "@/lib/validators/profile";
+import { studentGroupSchema } from "@/lib/validators/student-group";
 import { eventInputSchema, type EventInput } from "@/lib/validators/event";
 import type { Role } from "@/lib/roles";
 
@@ -636,45 +638,54 @@ export function updateCampusUser(
           : []),
       ],
     );
-    return { id: user.id, role: user.role, blocked: user.blocked };
+    return {
+      id: user.id,
+      role: user.role,
+      blocked: user.blocked,
+      roleChanged: previousRole !== user.role,
+    };
   });
 }
 export function updateStudentProfile(
   actor: Actor,
   input: {
     name: string;
-    group: string;
-    school: string;
     currentPassword?: string;
     password?: string;
+    passwordConfirmation?: string;
   },
 ) {
-  const parsed = z
-    .object({
-      name: z.string().trim().min(2).max(80),
-      group: z.string().trim().max(40),
-      school: z.string().trim().max(120),
-      currentPassword: z.string().optional(),
-      password: z.string().optional(),
-    })
-    .parse(input);
   return changeStore((store) => {
     const user = assertRole(actor, ["STUDENT"], store);
+    const parsed = profileInputSchema.parse({
+      name: input.name,
+      currentPassword: input.currentPassword ?? "",
+      password: input.password ?? "",
+      passwordConfirmation: input.passwordConfirmation ?? "",
+    });
     if (parsed.password) {
-      if (parsed.password.length < 8 || parsed.password.length > 128)
-        throw new ServiceError(
-          "FORBIDDEN",
-          "Пароль должен содержать от 8 до 128 символов.",
-        );
       if (!verifyPassword(parsed.currentPassword ?? "", user.passwordHash))
-        throw new ServiceError("FORBIDDEN", "Текущий пароль неверен.");
+        throw new ServiceError("UNAUTHORIZED", "Текущий пароль неверен.");
       user.passwordHash = hashPassword(parsed.password);
     }
     user.name = parsed.name;
-    user.group = parsed.group;
-    user.school = parsed.school;
     for (const comment of store.comments.filter((c) => c.userId === user.id))
       comment.userName = user.name;
+  });
+}
+export function updateStudentGroup(actor: Actor, id: string, group: unknown) {
+  return changeStore((store) => {
+    assertRole(actor, ["ADMIN"], store);
+    const user = store.users.find((item) => item.id === id);
+    if (!user) throw new ServiceError("NOT_FOUND", "Пользователь не найден.");
+    if (user.role !== "STUDENT") {
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Учебную группу можно изменить только студенту.",
+      );
+    }
+    user.group = studentGroupSchema.parse(group);
+    return { id: user.id, group: user.group };
   });
 }
 export function createAccount(input: {

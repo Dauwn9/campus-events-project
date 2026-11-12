@@ -1,7 +1,10 @@
 "use client";
 import { useState } from "react";
 import ActionForm from "./ActionForm";
-import { updateUserAction } from "@/app/campus-actions";
+import {
+  updateStudentGroupAction,
+  updateUserAction,
+} from "@/app/campus-actions";
 import Icon from "@/components/ui/Icon";
 type Row = {
   id: string;
@@ -12,6 +15,119 @@ type Row = {
   blockedUntilLabel: string;
   group: string;
 };
+const roleLabels: Record<string, string> = {
+  STUDENT: "Студент",
+  ORGANIZER: "Организатор",
+  ADMIN: "Администратор",
+};
+
+function UserRow({ user }: { user: Row }) {
+  const fixed = ["student-demo", "org-2", "admin-demo"].includes(user.id);
+
+  return (
+    <article className="user-row">
+      <span className="user-avatar" aria-hidden="true">
+        {user.name
+          .split(" ")
+          .slice(0, 2)
+          .map((n) => n[0])
+          .join("")}
+      </span>
+      <div className="user-info">
+        <strong>{user.name}</strong>
+        <span>{user.email}</span>
+        <small>
+          Роль: {roleLabels[user.role] ?? user.role} ·{" "}
+          {user.group || "Сотрудник / организатор"}
+          {fixed ? " · Демо-аккаунт" : ""}
+          {user.blockedUntilLabel
+            ? ` · Блокировка: ${user.blockedUntilLabel}`
+            : ""}
+        </small>
+      </div>
+      <ActionForm
+        action={updateUserAction.bind(null, user.id)}
+        confirm={(form) => {
+          const nextRole = String(form.get("role") ?? user.role);
+          if (nextRole === user.role) return;
+          return `Изменить роль пользователя ${user.name} (${user.email}) с «${roleLabels[user.role] ?? user.role}» на «${roleLabels[nextRole] ?? nextRole}»?`;
+        }}
+      >
+        <div className="user-permissions">
+          <label>
+            Роль пользователя
+            <select
+              key={user.role}
+              name="role"
+              defaultValue={user.role}
+              disabled={fixed}
+            >
+              <option value="STUDENT">Студент</option>
+              <option value="ORGANIZER">Организатор</option>
+              <option value="ADMIN">Администратор</option>
+            </select>
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              name="blocked"
+              defaultChecked={user.blocked}
+              disabled={fixed}
+            />
+            Заблокирован
+          </label>
+          <label>
+            Срок блокировки
+            <select
+              name="banDuration"
+              defaultValue={user.blocked ? "keep" : "7d"}
+              disabled={fixed}
+            >
+              {user.blocked && (
+                <option value="keep">Не менять срок</option>
+              )}
+              <option value="1d">На 1 день</option>
+              <option value="7d">На 7 дней</option>
+              <option value="30d">На 30 дней</option>
+              <option value="permanent">Навсегда</option>
+            </select>
+          </label>
+          <button
+            className="workspace-button secondary"
+            aria-label={`Сохранить изменения пользователя ${user.email}`}
+            disabled={fixed}
+          >
+            Сохранить
+          </button>
+        </div>
+      </ActionForm>
+      {user.role === "STUDENT" && (
+        <ActionForm
+          action={updateStudentGroupAction.bind(null, user.id)}
+          className="student-group-form"
+        >
+          <div className="student-group-editor">
+            <label htmlFor={`student-group-${user.id}`}>Учебная группа</label>
+            <input
+              key={user.group}
+              id={`student-group-${user.id}`}
+              name="group"
+              defaultValue={user.group}
+              maxLength={40}
+            />
+            <button
+              className="workspace-button secondary"
+              aria-label={`Сохранить учебную группу пользователя ${user.email}`}
+            >
+              Сохранить группу
+            </button>
+          </div>
+        </ActionForm>
+      )}
+    </article>
+  );
+}
+
 export default function UsersTable({ users }: { users: Row[] }) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("all");
@@ -52,82 +168,9 @@ export default function UsersTable({ users }: { users: Row[] }) {
           <option value="ADMIN">Администраторы</option>
         </select>
       </div>
-      <div className="users-list">
+      <div className="users-list"      >
         {filtered.slice(page * 15, (page + 1) * 15).map((user) => {
-          const fixed = ["student-demo", "org-2", "admin-demo"].includes(
-            user.id,
-          );
-          return (
-            <article className="user-row" key={user.id}>
-              <span className="user-avatar">
-                {user.name
-                  .split(" ")
-                  .slice(0, 2)
-                  .map((n) => n[0])
-                  .join("")}
-              </span>
-              <div className="user-info">
-                <strong>{user.name}</strong>
-                <span>{user.email}</span>
-                <small>
-                  {user.group || "Сотрудник / организатор"}
-                  {fixed ? " · Демо-аккаунт" : ""}
-                  {user.blockedUntilLabel
-                    ? ` · Блокировка: ${user.blockedUntilLabel}`
-                    : ""}
-                </small>
-              </div>
-              <ActionForm action={updateUserAction.bind(null, user.id)}>
-                <div className="user-permissions">
-                  <label>
-                    <span className="sr-only">Роль: {user.email}</span>
-                    <select
-                      name="role"
-                      defaultValue={user.role}
-                      disabled={fixed}
-                    >
-                      <option value="STUDENT">Студент</option>
-                      <option value="ORGANIZER">Организатор</option>
-                      <option value="ADMIN">Администратор</option>
-                    </select>
-                  </label>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      name="blocked"
-                      defaultChecked={user.blocked}
-                      disabled={fixed}
-                    />
-                    Заблокирован
-                  </label>
-                  <label>
-                    <span className="sr-only">
-                      Срок блокировки: {user.email}
-                    </span>
-                    <select
-                      name="banDuration"
-                      defaultValue={user.blocked ? "keep" : "7d"}
-                      disabled={fixed}
-                    >
-                      {user.blocked && (
-                        <option value="keep">Не менять срок</option>
-                      )}
-                      <option value="1d">На 1 день</option>
-                      <option value="7d">На 7 дней</option>
-                      <option value="30d">На 30 дней</option>
-                      <option value="permanent">Навсегда</option>
-                    </select>
-                  </label>
-                  <button
-                    className="workspace-button secondary"
-                    disabled={fixed}
-                  >
-                    Сохранить
-                  </button>
-                </div>
-              </ActionForm>
-            </article>
-          );
+          return <UserRow key={user.id} user={user} />;
         })}
       </div>
       {!filtered.length && (
