@@ -19,6 +19,7 @@ export default async function MyRegistrationsPage({
 }) {
   const query = await searchParams;
   const all = await getMyRegistrations({ when: "all" });
+  const now = new Date();
   const when = ["upcoming", "past", "all"].includes(query.when ?? "")
     ? query.when!
     : "upcoming";
@@ -26,8 +27,8 @@ export default async function MyRegistrationsPage({
     (r) =>
       when === "all" ||
       (when === "past"
-        ? Date.parse(r.event.endsAt) < Date.now()
-        : Date.parse(r.event.endsAt) >= Date.now()),
+        ? Date.parse(r.event.endsAt) < now.getTime()
+        : Date.parse(r.event.endsAt) >= now.getTime()),
   );
   return (
     <>
@@ -43,7 +44,7 @@ export default async function MyRegistrationsPage({
             value: all.filter(
               (r) =>
                 r.status === "CONFIRMED" &&
-                Date.parse(r.event.endsAt) >= Date.now(),
+                Date.parse(r.event.endsAt) >= now.getTime(),
             ).length,
           },
           {
@@ -78,7 +79,7 @@ export default async function MyRegistrationsPage({
               const active =
                 r.status === "CONFIRMED" &&
                 r.event.status === "PUBLISHED" &&
-                Date.parse(r.event.endsAt) >= Date.now();
+                Date.parse(r.event.endsAt) >= now.getTime();
               const qr =
                 active && r.qrToken
                   ? await QRCode.toDataURL(r.qrToken, ticketQROptions)
@@ -139,7 +140,7 @@ export default async function MyRegistrationsPage({
                   )}
                   {r.status !== "CANCELLED" &&
                     !r.checkedInAt &&
-                    Date.parse(r.event.startsAt) > Date.now() && (
+                    Date.parse(r.event.startsAt) > now.getTime() && (
                       <ActionForm
                         action={cancelRegistrationAction.bind(null, r.id)}
                         confirm="Отменить вашу запись на это событие?"

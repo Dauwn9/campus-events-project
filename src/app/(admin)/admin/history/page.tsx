@@ -1,5 +1,12 @@
-import { getAdminAuditLog } from "@/lib/services/admin";
 import { PageHeading } from "@/components/workspace/WorkspaceUI";
+import HistoryFilters from "@/components/admin/HistoryFilters";
+import { getAdminAuditLog } from "@/lib/services/admin";
+import {
+  filterAuditEntries,
+  getAuditActionLabel,
+  getAuditEntityType,
+  type AuditHistoryFilters,
+} from "@/lib/audit-history";
 
 const fieldLabels: Record<string, string> = {
   title: "Событие → Название",
@@ -21,6 +28,7 @@ const fieldLabels: Record<string, string> = {
   categorySlug: "Категория → URL-имя",
   slug: "Категория → URL-имя",
 };
+
 const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
   dateStyle: "medium",
   timeStyle: "short",
@@ -29,25 +37,39 @@ const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
 
 function displayValue(field: string, value: string) {
   if (field === "archivedAt" && value === "—") return "Не в архиве";
-  if (
-    [
-      "startsAt",
-      "endsAt",
-      "registrationOpensAt",
-      "blockedUntil",
-      "archivedAt",
-    ].includes(field)
-  ) {
+  if (["startsAt", "endsAt", "registrationOpensAt", "blockedUntil", "archivedAt"].includes(field)) {
     const date = new Date(value);
-    if (!Number.isNaN(date.getTime())) {
-      return dateFormatter.format(date);
-    }
+    if (!Number.isNaN(date.getTime())) return dateFormatter.format(date);
   }
   return value;
 }
 
-export default async function AdminHistoryPage() {
-  const entries = await getAdminAuditLog();
+function entityLabel(type: string) {
+  if (type === "EVENT") return "Событие";
+  if (type === "CATEGORY") return "Категория";
+  return "Пользователь";
+}
+
+export default async function AdminHistoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<AuditHistoryFilters>;
+}) {
+  const [entries, params] = await Promise.all([getAdminAuditLog(), searchParams]);
+  const filters: AuditHistoryFilters = {
+    q: params.q,
+    type: params.type,
+    action: params.action,
+    actor: params.actor,
+    entityId: params.entityId,
+    from: params.from,
+    to: params.to,
+  };
+  const filteredEntries = filterAuditEntries(entries, filters);
+  const activeEntity =
+    filters.entityId && entries.find((entry) => entry.entityId === filters.entityId)
+      ? entries.find((entry) => entry.entityId === filters.entityId)
+      : null;
 
   return (
     <>
@@ -56,49 +78,45 @@ export default async function AdminHistoryPage() {
         title="История изменений"
         text="Кто, когда и какое поле события, категории или пользователя изменил. Показаны последние 200 записей."
       />
+      <HistoryFilters
+        initialFilters={filters}
+        totalCount={filteredEntries.length}
+        activeEntityLabel={activeEntity ? `${activeEntity.entityLabel}` : null}
+      />
       <section className="workspace-panel" aria-label="Записи истории изменений">
-        {!entries.length ? (
-          <p className="table-empty">Изменений пока нет.</p>
+        {!filteredEntries.length ? (
+          <p className="table-empty">Ничего не найдено.</p>
         ) : (
-          <ol className="space-y-3">
-            {entries.map((entry) => (
-              <li
-                className="rounded-control border border-border p-4"
-                key={entry.id}
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <strong>{entry.entityLabel}</strong>
-                  <time
-                    className="text-sm text-muted"
-                    dateTime={entry.occurredAt}
-                  >
-                    {dateFormatter.format(new Date(entry.occurredAt))}
-                  </time>
-                </div>
-                <p className="mt-2 text-sm">
-                  <span className="font-medium">
-                    {entry.entityType === "CATEGORY" &&
-                    entry.field === "name"
-                      ? "Категория → Название"
-                      : entry.entityType === "CATEGORY" &&
-                          entry.field === "archivedAt"
-                        ? "Категория → Архив"
-                        : entry.entityType === "CATEGORY" &&
-                            entry.field === "slug"
-                          ? "Категория → URL-имя"
-                          : fieldLabels[entry.field] ?? entry.field}
-                  </span>
-                  <span className="text-muted"> · {entry.actorName}</span>
-                </p>
-                <p className="mt-1 break-words text-sm">
-                  <span className="text-muted">Было:</span>{" "}
-                  {displayValue(entry.field, entry.oldValue)}
-                  <span className="px-2 text-muted">→</span>
-                  <span className="text-muted">Стало:</span>{" "}
-                  {displayValue(entry.field, entry.newValue)}
-                </p>
-              </li>
-            ))}
+          <ol className="audit-history-list">
+            {filteredEntries.map((entry) => {
+              const actorRole = "actorRole" in entry ? entry.actorRole ?? "ADMIN" : "ADMIN";
+              return (
+                <li className="rounded-control border border-border p-4" key={entry.id}>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <strong>{entry.entityLabel}</strong>
+                    <time className="text-sm text-muted" dateTime={entry.occurredAt}>
+                      {dateFormatter.format(new Date(entry.occurredAt))}
+                    </time>
+                  </div>
+                  <p className="mt-2 text-sm">
+                    <span className="font-medium">
+                      {fieldLabels[entry.field] ?? `${entityLabel(entry.entityType)} → ${entry.field}`}
+                    </span>
+                    <span className="text-muted"> · {entry.actorName}</span>
+                  </p>
+                  <p className="mt-2 text-xs text-muted">
+                    {[getAuditActionLabel(entry), getAuditEntityType(entry), actorRole].join(" · ")}
+                  </p>
+                  <p className="mt-1 break-words text-sm">
+                    <span className="text-muted">Было:</span>{" "}
+                    {displayValue(entry.field, entry.oldValue)}
+                    <span className="px-2 text-muted">→</span>
+                    <span className="text-muted">Стало:</span>{" "}
+                    {displayValue(entry.field, entry.newValue)}
+                  </p>
+                </li>
+              );
+            })}
           </ol>
         )}
       </section>

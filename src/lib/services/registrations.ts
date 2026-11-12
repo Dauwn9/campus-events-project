@@ -1,6 +1,11 @@
 import { getCurrentUser, requireRole } from "@/lib/auth";
 import { readStore } from "./demo-store";
-import { registerStudent, cancelStudentRegistration } from "./campus";
+import {
+  registerStudent,
+  cancelStudentRegistration,
+  getStudentPriorityStatus,
+  isPriorityEventMember,
+} from "./campus";
 import type {
   EventRegistrationState,
   MyRegistrationsFilter,
@@ -45,6 +50,19 @@ export async function getEventRegistrationState(
       (r) =>
         r.eventId === id && r.userId === user.id && r.status !== "CANCELLED",
     ) ?? null;
+  const now = Date.now();
+  const openAt = event.registrationOpensAt
+    ? Date.parse(event.registrationOpensAt)
+    : null;
+  const priorityDeadline =
+    openAt && event.priorityWindowHours
+      ? openAt + event.priorityWindowHours * 3600000
+      : null;
+  const withinPriorityWindow =
+    Boolean(openAt && priorityDeadline && now >= openAt && now < priorityDeadline);
+  const isActive = getStudentPriorityStatus(store, user.id) === "ACTIVE";
+  const isPriorityMember = isPriorityEventMember(store, user.id, id);
+  const canUsePriority = isActive || isPriorityMember;
   const state: EventRegistrationState["state"] =
     event.status !== "PUBLISHED" || Date.parse(event.startsAt) <= Date.now()
       ? "PAST"
@@ -52,12 +70,15 @@ export async function getEventRegistrationState(
         ? "REGISTERED"
         : mine?.status === "WAITLIST"
           ? "WAITLISTED"
-          : event.registrationOpensAt &&
-              Date.parse(event.registrationOpensAt) > Date.now()
+          : openAt && now < openAt
             ? "NOT_OPEN_YET"
-            : event.registeredCount >= event.capacity
-              ? "JOIN_WAITLIST"
-              : "CAN_REGISTER";
+            : withinPriorityWindow && !canUsePriority
+              ? "NOT_OPEN_YET"
+              : event.registeredCount >= event.capacity
+                ? "JOIN_WAITLIST"
+                : withinPriorityWindow && canUsePriority
+                  ? "PRIORITY_REGISTER"
+                  : "CAN_REGISTER";
   return {
     eventId: id,
     state,

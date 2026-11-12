@@ -6,6 +6,7 @@ import {
   updateUserAction,
 } from "@/app/campus-actions";
 import Icon from "@/components/ui/Icon";
+import HistoryLinkButton from "@/components/admin/HistoryLinkButton";
 type Row = {
   id: string;
   name: string;
@@ -45,62 +46,65 @@ function UserRow({ user }: { user: Row }) {
             : ""}
         </small>
       </div>
-      <ActionForm
-        action={updateUserAction.bind(null, user.id)}
-        confirm={(form) => {
-          const nextRole = String(form.get("role") ?? user.role);
-          if (nextRole === user.role) return;
-          return `Изменить роль пользователя ${user.name} (${user.email}) с «${roleLabels[user.role] ?? user.role}» на «${roleLabels[nextRole] ?? nextRole}»?`;
-        }}
-      >
-        <div className="user-permissions">
-          <label>
-            Роль пользователя
-            <select
-              key={user.role}
-              name="role"
-              defaultValue={user.role}
+      <div className="user-actions-row">
+        <HistoryLinkButton entityType="USER" entityId={user.id} />
+        <ActionForm
+          action={updateUserAction.bind(null, user.id)}
+          confirm={(form) => {
+            const nextRole = String(form.get("role") ?? user.role);
+            if (nextRole === user.role) return;
+            return `Изменить роль пользователя ${user.name} (${user.email}) с «${roleLabels[user.role] ?? user.role}» на «${roleLabels[nextRole] ?? nextRole}»?`;
+          }}
+        >
+          <div className="user-permissions">
+            <label>
+              Роль пользователя
+              <select
+                key={user.role}
+                name="role"
+                defaultValue={user.role}
+                disabled={fixed}
+              >
+                <option value="STUDENT">Студент</option>
+                <option value="ORGANIZER">Организатор</option>
+                <option value="ADMIN">Администратор</option>
+              </select>
+            </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                name="blocked"
+                defaultChecked={user.blocked}
+                disabled={fixed}
+              />
+              Заблокирован
+            </label>
+            <label>
+              Срок блокировки
+              <select
+                name="banDuration"
+                defaultValue={user.blocked ? "keep" : "7d"}
+                disabled={fixed}
+              >
+                {user.blocked && (
+                  <option value="keep">Не менять срок</option>
+                )}
+                <option value="1d">На 1 день</option>
+                <option value="7d">На 7 дней</option>
+                <option value="30d">На 30 дней</option>
+                <option value="permanent">Навсегда</option>
+              </select>
+            </label>
+            <button
+              className="workspace-button secondary"
+              aria-label={`Сохранить изменения пользователя ${user.email}`}
               disabled={fixed}
             >
-              <option value="STUDENT">Студент</option>
-              <option value="ORGANIZER">Организатор</option>
-              <option value="ADMIN">Администратор</option>
-            </select>
-          </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              name="blocked"
-              defaultChecked={user.blocked}
-              disabled={fixed}
-            />
-            Заблокирован
-          </label>
-          <label>
-            Срок блокировки
-            <select
-              name="banDuration"
-              defaultValue={user.blocked ? "keep" : "7d"}
-              disabled={fixed}
-            >
-              {user.blocked && (
-                <option value="keep">Не менять срок</option>
-              )}
-              <option value="1d">На 1 день</option>
-              <option value="7d">На 7 дней</option>
-              <option value="30d">На 30 дней</option>
-              <option value="permanent">Навсегда</option>
-            </select>
-          </label>
-          <button
-            className="workspace-button secondary"
-            aria-label={`Сохранить изменения пользователя ${user.email}`}
-            disabled={fixed}
-          >
-            Сохранить
-          </button>
-        </div>
-      </ActionForm>
+              Сохранить
+            </button>
+          </div>
+        </ActionForm>
+      </div>
       {user.role === "STUDENT" && (
         <ActionForm
           action={updateStudentGroupAction.bind(null, user.id)}

@@ -410,6 +410,38 @@ test("Срок блокировки ограничивает доступ и а�
     ),
   );
 });
+test("Приоритетное окно учитывает активный статус и список организатора", () => {
+  const event = published(120, 5);
+  const plainStudent = { id: "student-99", role: "STUDENT" as const };
+  changeStore((store) => {
+    const target = store.events.find((item) => item.id === event.id)!;
+    target.registrationOpensAt = new Date(Date.now() - 15 * 60000).toISOString();
+    target.priorityWindowHours = 2;
+    target.priorityMembers = ["student-1"];
+    const demoUser = store.users.find((user) => user.id === student.id)!;
+    demoUser.priorityStatus = "ACTIVE";
+    const plainUser = store.users.find((user) => user.id === plainStudent.id)!;
+    if (!plainUser) {
+      store.users.push({
+        id: plainStudent.id,
+        name: "Простой студент",
+        email: "plain-student@example.com",
+        role: "STUDENT",
+        group: "AIU-99",
+        school: "AIU",
+        priorityStatus: "STANDARD",
+        blocked: false,
+      });
+    }
+  });
+  assert.equal(registerStudent(student, event.id).status, "CONFIRMED");
+  assert.throws(() => registerStudent(plainStudent, event.id), /активных студентов/);
+  changeStore((store) => {
+    const normal = store.users.find((user) => user.id === plainStudent.id)!;
+    normal.priorityStatus = "ACTIVE";
+  });
+  assert.equal(registerStudent(plainStudent, event.id).status, "CONFIRMED");
+});
 test("Серверные проверки дат, вместимости и приоритетной записи", () => {
   assert.throws(() => makeEvent(-10), /будущем/);
   const event = published();

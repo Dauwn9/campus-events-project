@@ -7,6 +7,7 @@ import { getAdminArchivedEvents } from "@/lib/services/admin";
 import { getAdminArchivedCategories } from "@/lib/services/categories";
 import { datePart } from "@/lib/event-design";
 import EventPoster from "@/components/events/EventPoster";
+import HistoryLinkButton from "@/components/admin/HistoryLinkButton";
 
 export default async function AdminArchivePage({
   searchParams,
@@ -100,18 +101,21 @@ export default async function AdminArchivePage({
                       · {event.registeredCount} регистраций
                     </span>
                   </div>
-                  <ActionForm
-                    action={eventOperationAction.bind(
-                      null,
-                      event.id,
-                      "restore",
-                    )}
-                    confirm="Восстановить событие? Оно снова появится в соответствующих разделах."
-                  >
-                    <button className="workspace-button">
-                      Восстановить событие
-                    </button>
-                  </ActionForm>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <HistoryLinkButton entityType="EVENT" entityId={event.id} />
+                    <ActionForm
+                      action={eventOperationAction.bind(
+                        null,
+                        event.id,
+                        "restore",
+                      )}
+                      confirm="Восстановить событие? Оно снова появится в соответствующих разделах."
+                    >
+                      <button className="workspace-button">
+                        Восстановить событие
+                      </button>
+                    </ActionForm>
+                  </div>
                 </div>
               </article>
             ))}
@@ -139,12 +143,15 @@ export default async function AdminArchivePage({
                     })}
                   </p>
                 </div>
-                <form action={restoreCategoryAction}>
-                  <input type="hidden" name="id" value={category.id} />
-                  <button className="workspace-button">
-                    Восстановить категорию
-                  </button>
-                </form>
+                <div className="flex items-center gap-2">
+                  <HistoryLinkButton entityType="CATEGORY" entityId={category.id} />
+                  <form action={restoreCategoryAction}>
+                    <input type="hidden" name="id" value={category.id} />
+                    <button className="workspace-button">
+                      Восстановить категорию
+                    </button>
+                  </form>
+                </div>
               </article>
             </li>
           ))}
