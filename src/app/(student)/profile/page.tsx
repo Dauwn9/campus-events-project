@@ -1,8 +1,8 @@
 import { requireRole } from "@/lib/auth";
 import { readStore } from "@/lib/services/demo-store";
 import { PageHeading, Stats, Panel } from "@/components/workspace/WorkspaceUI";
-import ActionForm from "@/components/workspace/ActionForm";
-import { profileAction, logoutAction } from "@/app/campus-actions";
+import ProfileForm from "@/components/workspace/ProfileForm";
+import { logoutAction } from "@/app/campus-actions";
 export default async function ProfilePage() {
   const user = await requireRole("STUDENT");
   const regs = readStore().registrations.filter((r) => r.userId === user.id);
@@ -33,60 +33,12 @@ export default async function ProfilePage() {
       />
       <div className="workspace-columns">
         <Panel title="Личные данные">
-          <ActionForm action={profileAction} className="profile-form">
-            <label>
-              Имя и фамилия
-              <input
-                name="name"
-                defaultValue={user.name}
-                required
-                minLength={2}
-                maxLength={80}
-              />
-            </label>
-            <label>
-              Email
-              <input value={user.email} disabled readOnly />
-            </label>
-            <div className="form-grid">
-              <label>
-                Учебная группа
-                <input name="group" defaultValue={user.group} maxLength={40} />
-              </label>
-              <label>
-                Высшая школа
-                <input
-                  name="school"
-                  defaultValue={user.school}
-                  maxLength={120}
-                />
-              </label>
-            </div>
-            <div className="form-section">
-              <h3>Изменить пароль</h3>
-              <p>Оставьте поля пустыми, чтобы сохранить текущий пароль.</p>
-            </div>
-            <label>
-              Текущий пароль
-              <input
-                type="password"
-                name="currentPassword"
-                autoComplete="current-password"
-                maxLength={128}
-              />
-            </label>
-            <label>
-              Новый пароль
-              <input
-                type="password"
-                name="password"
-                minLength={8}
-                maxLength={128}
-                autoComplete="new-password"
-              />
-            </label>
-            <button className="workspace-button">Сохранить профиль</button>
-          </ActionForm>
+          <ProfileForm
+            initialValues={{ name: user.name }}
+            email={user.email}
+            group={user.group}
+            school={user.school}
+          />
         </Panel>
         <aside className="workspace-panel profile-side">
           <span className="profile-avatar">

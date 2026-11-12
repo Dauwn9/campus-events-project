@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import QRCode from "qrcode";
 import { ticketQROptions } from "@/lib/qr";
 import { readQR } from "@/lib/qr-reader";
+import { profileInputSchema } from "@/lib/validators/profile";
 import { readStore, changeStore } from "./demo-store";
 import {
   saveCampusEvent,
@@ -24,9 +25,11 @@ import {
   sessionUser,
   revokeSession,
   updateStudentProfile,
+  updateStudentGroup,
 } from "./campus";
 import { getEventById, getEvents } from "./events";
 import { getCategories } from "./categories";
+import { ServiceError } from "./errors";
 
 const file = join(process.cwd(), "work", `qa-state-${randomUUID()}.json`);
 process.env.CAMPUS_DATA_FILE = file;
@@ -289,12 +292,78 @@ test("Профиль, избранное, роли и блокировка: из
   assert.ok(!readFileSync(file, "utf8").includes("Different2026!"));
   updateStudentProfile(actor, {
     name: "Новое имя",
-    group: "IT-26",
-    school: "AIU",
   });
   assert.equal(
     readStore().users.find((u) => u.id === actor.id)?.name,
     "Новое имя",
+  );
+  changeStore((store) => {
+    const user = store.users.find((item) => item.id === actor.id);
+    assert.ok(user);
+    user.group = "AIU-26";
+    user.school = "Инженерная школа";
+  });
+  const forgedProfileInput = {
+    name: "Новое имя",
+    currentPassword: "",
+    password: "",
+    passwordConfirmation: "",
+    group: "Чужая группа",
+    school: "Чужая школа",
+  };
+  updateStudentProfile(actor, forgedProfileInput);
+  const profileAfterForgedUpdate = readStore().users.find(
+    (user) => user.id === actor.id,
+  );
+  assert.equal(profileAfterForgedUpdate?.group, "AIU-26");
+  assert.equal(profileAfterForgedUpdate?.school, "Инженерная школа");
+  const invalidPassword = profileInputSchema.safeParse({
+    name: "Новое имя",
+    currentPassword: "",
+    password: "Different2027!",
+    passwordConfirmation: "Different2027!",
+  });
+  assert.equal(invalidPassword.success, false);
+  const mismatchedPassword = profileInputSchema.safeParse({
+    name: "Новое имя",
+    currentPassword: "Different2026!",
+    password: "Different2027!",
+    passwordConfirmation: "Different2028!",
+  });
+  assert.equal(mismatchedPassword.success, false);
+  assert.throws(
+    () =>
+      updateStudentProfile(actor, {
+        name: "Новое имя",
+        currentPassword: "wrong",
+        password: "Different2027!",
+        passwordConfirmation: "Different2027!",
+      }),
+    (error) =>
+      error instanceof ServiceError && error.code === "UNAUTHORIZED",
+  );
+  updateStudentProfile(actor, {
+    name: "Новое имя",
+    currentPassword: "Different2026!",
+    password: "Different2027!",
+    passwordConfirmation: "Different2027!",
+  });
+  assert.throws(
+    () => signIn("test@example.com", "Different2026!"),
+    (error) =>
+      error instanceof ServiceError && error.code === "UNAUTHORIZED",
+  );
+  const updatedToken = signIn("test@example.com", "Different2027!");
+  assert.equal(sessionUser(updatedToken)?.id, actor.id);
+  revokeSession(updatedToken);
+  assert.equal(updateStudentGroup(admin, actor.id, "IT-26").group, "IT-26");
+  assert.throws(
+    () => updateStudentGroup(admin, actor.id, "G".repeat(41)),
+    /Учебная группа/,
+  );
+  assert.throws(
+    () => updateStudentGroup(admin, "admin-demo", "IT-26"),
+    /только студенту/,
   );
   const event = published();
   assert.equal(toggleStudentFavorite(actor, event.id).isFavorite, true);
@@ -303,7 +372,8 @@ test("Профиль, избранное, роли и блокировка: из
     () => updateCampusUser(admin, "admin-demo", "STUDENT", true),
     /закреплены/,
   );
-  updateCampusUser(admin, actor.id, "STUDENT", true);
+  const roleUpdate = updateCampusUser(admin, actor.id, "ORGANIZER", true);
+  assert.equal(roleUpdate.roleChanged, true);
   assert.equal(sessionUser(token), undefined);
   assert.throws(() => registerStudent(actor, event.id), /роли/);
   assert.throws(
