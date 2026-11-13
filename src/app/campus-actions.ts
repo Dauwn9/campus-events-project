@@ -23,7 +23,11 @@ import {
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
 
-export type ActionState = { error?: string; message?: string };
+export type ActionState = {
+  error?: string;
+  message?: string;
+  fieldErrors?: Record<string, string>;
+};
 export type CheckInState = ActionState & {
   kind?: "success" | "duplicate";
   name?: string;
@@ -32,14 +36,36 @@ export type CheckInState = ActionState & {
 };
 const text = (form: FormData, key: string) =>
   String(form.get(key) ?? "").trim();
+function issueText(issue: z.core.$ZodIssue): string {
+  if (issue.code === "custom") return issue.message;
+  if (issue.code === "too_small")
+    return issue.origin === "string"
+      ? `Минимум символов: ${issue.minimum}`
+      : `Не меньше ${issue.minimum}`;
+  if (issue.code === "too_big")
+    return issue.origin === "string"
+      ? `Максимум символов: ${issue.maximum}`
+      : `Не больше ${issue.maximum}`;
+  if (issue.code === "invalid_type")
+    return issue.expected === "number" ? "Введите число" : "Заполните поле";
+  if (issue.code === "invalid_format") return "Неверный формат";
+  return issue.message;
+}
 function errorState(error: unknown): ActionState {
-  if (error instanceof z.ZodError)
+  if (error instanceof z.ZodError) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of error.issues) {
+      const key = String(issue.path[0] ?? "");
+      if (key && !(key in fieldErrors)) fieldErrors[key] = issueText(issue);
+    }
     return {
       error: error.issues
         .map((i) => i.message)
         .slice(0, 3)
         .join(" · "),
+      fieldErrors,
     };
+  }
   if (error instanceof ServiceError) return { error: error.message };
   console.error(
     "Campus action failed",
@@ -62,6 +88,17 @@ export async function saveEventAction(
   form: FormData,
 ): Promise<ActionState> {
   const user = await requireRole("ORGANIZER");
+  if (
+    Number(text(form, "priorityWindowHours") || 0) > 0 &&
+    !text(form, "registrationOpensAt")
+  )
+    return {
+      error: "Проверьте выделенные поля.",
+      fieldErrors: {
+        registrationOpensAt:
+          "Укажите дату открытия записи — без неё приоритетное окно не работает",
+      },
+    };
   let id: string;
   try {
     const event = saveCampusEvent(

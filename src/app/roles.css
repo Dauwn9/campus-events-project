@@ -1801,3 +1801,7 @@ button:disabled {
     width: 100%;
   }
 }
+.field-error { margin: 6px 0 0; font-size: 0.85rem; }
+input[aria-invalid="true"],
+textarea[aria-invalid="true"],
+select[aria-invalid="true"] { border-color: #c0392b; }
