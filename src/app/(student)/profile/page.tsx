@@ -1,12 +1,34 @@
 import { requireRole } from "@/lib/auth";
 import { readStore } from "@/lib/services/demo-store";
-import { PageHeading, Stats, Panel } from "@/components/workspace/WorkspaceUI";
-import ActionForm from "@/components/workspace/ActionForm";
-import { profileAction, logoutAction } from "@/app/campus-actions";
+import {
+  PageHeading,
+  Stats,
+  Panel,
+  Empty,
+} from "@/components/workspace/WorkspaceUI";
+import ProfileForm from "@/components/workspace/ProfileForm";
+import StudentEventCard from "@/components/workspace/StudentEventCard";
+import { logoutAction } from "@/app/campus-actions";
+import { datePart } from "@/lib/event-design";
+
 export default async function ProfilePage() {
   const user = await requireRole("STUDENT");
-  const regs = readStore().registrations.filter((r) => r.userId === user.id);
+  const store = readStore();
+  const regs = store.registrations.filter((r) => r.userId === user.id);
   const visits = regs.filter((r) => r.checkedInAt).length;
+  const isActive = visits >= 3;
+  const history = regs
+    .filter((r) => r.checkedInAt)
+    .flatMap((r) => {
+      const event = store.events.find((item) => item.id === r.eventId);
+      if (!event) return [];
+      return [{ ...r, event }];
+    })
+    .sort((a, b) =>
+      new Date(b.checkedInAt ?? 0).getTime() -
+      new Date(a.checkedInAt ?? 0).getTime(),
+    );
+
   return (
     <>
       <PageHeading
@@ -19,11 +41,10 @@ export default async function ProfilePage() {
           { label: "Посещено событий", value: visits },
           {
             label: "Статус участника",
-            value: visits >= 3 ? "Активный" : "Стандартный",
-            note:
-              visits >= 3
-                ? "Доступна приоритетная запись"
-                : "Активный статус — после 3 посещений",
+            value: isActive ? "Активный" : "Стандартный",
+            note: isActive
+              ? "Доступна приоритетная запись"
+              : "Активный статус — после 3 посещений",
           },
           {
             label: "Ваши регистрации",
@@ -33,60 +54,12 @@ export default async function ProfilePage() {
       />
       <div className="workspace-columns">
         <Panel title="Личные данные">
-          <ActionForm action={profileAction} className="profile-form">
-            <label>
-              Имя и фамилия
-              <input
-                name="name"
-                defaultValue={user.name}
-                required
-                minLength={2}
-                maxLength={80}
-              />
-            </label>
-            <label>
-              Email
-              <input value={user.email} disabled readOnly />
-            </label>
-            <div className="form-grid">
-              <label>
-                Учебная группа
-                <input name="group" defaultValue={user.group} maxLength={40} />
-              </label>
-              <label>
-                Высшая школа
-                <input
-                  name="school"
-                  defaultValue={user.school}
-                  maxLength={120}
-                />
-              </label>
-            </div>
-            <div className="form-section">
-              <h3>Изменить пароль</h3>
-              <p>Оставьте поля пустыми, чтобы сохранить текущий пароль.</p>
-            </div>
-            <label>
-              Текущий пароль
-              <input
-                type="password"
-                name="currentPassword"
-                autoComplete="current-password"
-                maxLength={128}
-              />
-            </label>
-            <label>
-              Новый пароль
-              <input
-                type="password"
-                name="password"
-                minLength={8}
-                maxLength={128}
-                autoComplete="new-password"
-              />
-            </label>
-            <button className="workspace-button">Сохранить профиль</button>
-          </ActionForm>
+          <ProfileForm
+            initialValues={{ name: user.name }}
+            email={user.email}
+            group={user.group}
+            school={user.school}
+          />
         </Panel>
         <aside className="workspace-panel profile-side">
           <span className="profile-avatar">
@@ -98,13 +71,16 @@ export default async function ProfilePage() {
           </span>
           <h2>{user.name}</h2>
           <p>Студент · AIU</p>
+          <span className={`status-tag ${isActive ? "status-active" : ""}`}>
+            {isActive ? "Активный" : "Стандартный"}
+          </span>
           <div className="priority-progress">
             <span style={{ width: `${Math.min(100, (visits / 3) * 100)}%` }} />
           </div>
           <p>
-            {visits >= 3
+            {isActive
               ? "Вы активно участвуете в жизни кампуса. Продолжайте открывать новое!"
-              : `До активного статуса осталось ${3 - visits} подтверждённых посещения.`}
+              : `До активного статуса осталось ${Math.max(0, 3 - visits)} подтверждённых посещения.`}
           </p>
           <form action={logoutAction}>
             <button className="workspace-button secondary">
@@ -113,6 +89,33 @@ export default async function ProfilePage() {
           </form>
         </aside>
       </div>
+      <Panel title="История посещений">
+        {history.length ? (
+          <div className="student-events-list">
+            {history.map((item) => (
+              <StudentEventCard key={item.event.id} event={item.event}>
+                <div className="registration-status">
+                  <span className="status-tag status-confirmed">Посещено</span>
+                  <span className="attendance-yes">
+                    {datePart(item.checkedInAt!, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                </div>
+              </StudentEventCard>
+            ))}
+          </div>
+        ) : (
+          <Empty
+            title="У вас пока нет подтверждённых посещений"
+            text="После первого отмеченного входа мероприятия появятся здесь."
+            href="/"
+            label="Посмотреть афишу"
+          />
+        )}
+      </Panel>
     </>
   );
 }

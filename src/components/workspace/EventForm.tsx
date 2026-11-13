@@ -310,7 +310,9 @@ export default function EventForm({
             После редактирования опубликованное событие повторно проходит
             модерацию.
           </p>
-          <Link href="/organizer">← Мои события</Link>
+          <Link className="workspace-back" href="/organizer">
+            ← Мои события
+          </Link>
         </section>
       </aside>
     </div>

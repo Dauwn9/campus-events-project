@@ -12,6 +12,7 @@ import {
   toggleStudentFavorite,
   checkInParticipant,
   updateCampusUser,
+  updateStudentGroup,
   updateStudentProfile,
   archiveAdminEvent,
   restoreAdminEvent,
@@ -22,11 +23,18 @@ import {
 } from "@/lib/services/campus";
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
+import {
+  isProfileField,
+  type ProfileField,
+} from "@/lib/validators/profile";
 
 export type ActionState = {
-  error?: string;
-  message?: string;
-  fieldErrors?: Record<string, string>;
+error?: string;
+message?: string;
+fieldErrors?: Record<string, string>;
+};
+export type ProfileActionState = ActionState & {
+fieldErrors?: Partial<Record<ProfileField, string>>;
 };
 export type CheckInState = ActionState & {
   kind?: "success" | "duplicate";
@@ -242,7 +250,7 @@ export async function updateUserAction(
 ): Promise<ActionState> {
   const actor = await requireRole("ADMIN");
   try {
-    updateCampusUser(
+    const result = updateCampusUser(
       actor,
       id,
       text(form, "role"),
@@ -250,27 +258,61 @@ export async function updateUserAction(
       text(form, "banDuration"),
     );
     refresh();
+    if (result.roleChanged) {
+      const roleLabels = {
+        STUDENT: "Студент",
+        ORGANIZER: "Организатор",
+        ADMIN: "Администратор",
+      };
+      return { message: `Роль изменена на «${roleLabels[result.role]}».` };
+    }
     return { message: "Права пользователя сохранены." };
   } catch (error) {
     return errorState(error);
   }
 }
-export async function profileAction(
+export async function updateStudentGroupAction(
+  id: string,
   _state: ActionState,
   form: FormData,
 ): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  try {
+    updateStudentGroup(actor, id, String(form.get("group") ?? ""));
+    refresh();
+    return { message: "Учебная группа сохранена." };
+  } catch (error) {
+    return errorState(error);
+  }
+}
+export async function profileAction(
+  _state: ProfileActionState,
+  form: FormData,
+): Promise<ProfileActionState> {
   const actor = await requireRole("STUDENT");
   try {
     updateStudentProfile(actor, {
       name: text(form, "name"),
-      group: text(form, "group"),
-      school: text(form, "school"),
       currentPassword: String(form.get("currentPassword") ?? ""),
       password: String(form.get("password") ?? ""),
+      passwordConfirmation: String(form.get("passwordConfirmation") ?? ""),
     });
     refresh();
     return { message: "Профиль сохранён." };
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      const fieldErrors: Partial<Record<ProfileField, string>> = {};
+      for (const issue of error.issues) {
+        const field = issue.path[0];
+        if (isProfileField(field) && !fieldErrors[field]) {
+          fieldErrors[field] = issue.message;
+        }
+      }
+      return { fieldErrors };
+    }
+    if (error instanceof ServiceError && error.code === "UNAUTHORIZED") {
+      return { fieldErrors: { currentPassword: error.message } };
+    }
     return errorState(error);
   }
 }

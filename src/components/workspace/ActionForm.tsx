@@ -10,7 +10,7 @@ export default function ActionForm({
   action: (state: ActionState, form: FormData) => Promise<ActionState>;
   children: ReactNode;
   className?: string;
-  confirm?: string;
+  confirm?: string | ((form: FormData) => string | undefined);
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   return (
@@ -19,7 +19,11 @@ export default function ActionForm({
       action={formAction}
       className={`action-form ${className}`}
       onSubmit={(event) => {
-        if (confirm && !window.confirm(confirm)) event.preventDefault();
+        const message =
+          typeof confirm === "function"
+            ? confirm(new FormData(event.currentTarget))
+            : confirm;
+        if (message && !window.confirm(message)) event.preventDefault();
       }}
     >
       <fieldset disabled={pending}>{children}</fieldset>
