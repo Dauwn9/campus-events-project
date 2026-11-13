@@ -27,24 +27,26 @@ function UserRow({ user }: { user: Row }) {
 
   return (
     <article className="user-row">
-      <span className="user-avatar" aria-hidden="true">
-        {user.name
-          .split(" ")
-          .slice(0, 2)
-          .map((n) => n[0])
-          .join("")}
-      </span>
-      <div className="user-info">
-        <strong>{user.name}</strong>
-        <span>{user.email}</span>
-        <small>
-          Роль: {roleLabels[user.role] ?? user.role} ·{" "}
-          {user.group || "Сотрудник / организатор"}
-          {fixed ? " · Демо-аккаунт" : ""}
-          {user.blockedUntilLabel
-            ? ` · Блокировка: ${user.blockedUntilLabel}`
-            : ""}
-        </small>
+      <div className="user-identity">
+        <span className="user-avatar" aria-hidden="true">
+          {user.name
+            .split(" ")
+            .slice(0, 2)
+            .map((n) => n[0])
+            .join("")}
+        </span>
+        <div className="user-info">
+          <strong>{user.name}</strong>
+          <span>{user.email}</span>
+          <small>
+            Роль: {roleLabels[user.role] ?? user.role} ·{" "}
+            {user.group || "Сотрудник / организатор"}
+            {fixed ? " · Демо-аккаунт" : ""}
+            {user.blockedUntilLabel
+              ? ` · Блокировка: ${user.blockedUntilLabel}`
+              : ""}
+          </small>
+        </div>
       </div>
       <div className="user-actions-row">
         <HistoryLinkButton entityType="USER" entityId={user.id} />
@@ -172,7 +174,12 @@ export default function UsersTable({ users }: { users: Row[] }) {
           <option value="ADMIN">Администраторы</option>
         </select>
       </div>
-      <div className="users-list"      >
+      <div
+        className="users-list"
+        role="region"
+        aria-label="Список пользователей"
+        tabIndex={0}
+      >
         {filtered.slice(page * 15, (page + 1) * 15).map((user) => {
           return <UserRow key={user.id} user={user} />;
         })}

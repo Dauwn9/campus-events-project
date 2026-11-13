@@ -21,8 +21,10 @@ import {
   startSession,
   revokeSession,
 } from "@/lib/services/campus";
+import { getEventById } from "@/lib/services/events";
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
+import { encodeEventCover, EventCoverError } from "@/lib/event-cover";
 import {
   isProfileField,
   type ProfileField,
@@ -96,6 +98,8 @@ export async function saveEventAction(
   form: FormData,
 ): Promise<ActionState> {
   const user = await requireRole("ORGANIZER");
+  const editId = text(form, "id") || undefined;
+  const previousEvent = editId ? await getEventById(editId) : null;
   if (
     Number(text(form, "priorityWindowHours") || 0) > 0 &&
     !text(form, "registrationOpensAt")
@@ -107,6 +111,21 @@ export async function saveEventAction(
           "Укажите дату открытия записи — без неё приоритетное окно не работает",
       },
     };
+  const removeCover = text(form, "removeCover") === "true";
+  const coverEntry = form.get("coverFile");
+  if (typeof coverEntry === "string" && coverEntry)
+    return { error: "Выберите файл изображения для обложки." };
+
+  let coverImageUrl: string | undefined;
+  if (coverEntry && typeof coverEntry !== "string" && (coverEntry.size > 0 || coverEntry.name)) {
+    try {
+      coverImageUrl = await encodeEventCover(coverEntry);
+    } catch (error) {
+      if (error instanceof EventCoverError) return { error: error.message };
+      return errorState(error);
+    }
+  }
+
   let id: string;
   try {
     const event = saveCampusEvent(
@@ -123,13 +142,15 @@ export async function saveEventAction(
         status: text(form, "intent") === "draft" ? "DRAFT" : "PENDING",
         priorityWindowHours: Number(text(form, "priorityWindowHours") || 0),
         registrationOpensAt: localTime(text(form, "registrationOpensAt")),
+        imageUrl: coverImageUrl ?? (removeCover ? undefined : previousEvent?.imageUrl),
       },
-      text(form, "id") || undefined,
+      editId,
     );
     id = event.id;
   } catch (error) {
     return errorState(error);
   }
+
   refresh();
   redirect(`/organizer/${id}?saved=1`);
 }

@@ -82,6 +82,7 @@ export default async function AdminHistoryPage({
         initialFilters={filters}
         totalCount={filteredEntries.length}
         activeEntityLabel={activeEntity ? `${activeEntity.entityLabel}` : null}
+        now={new Date().toISOString()}
       />
       <section className="workspace-panel" aria-label="Записи истории изменений">
         {!filteredEntries.length ? (

@@ -1,5 +1,6 @@
 import { requireRole } from "@/lib/auth";
 import { readStore } from "@/lib/services/demo-store";
+import { getStudentPriorityStatus } from "@/lib/services/campus";
 import {
   PageHeading,
   Stats,
@@ -16,7 +17,7 @@ export default async function ProfilePage() {
   const store = readStore();
   const regs = store.registrations.filter((r) => r.userId === user.id);
   const visits = regs.filter((r) => r.checkedInAt).length;
-  const isActive = visits >= 3;
+  const isActive = getStudentPriorityStatus(store, user.id) === "ACTIVE";
   const history = regs
     .filter((r) => r.checkedInAt)
     .flatMap((r) => {
@@ -75,7 +76,11 @@ export default async function ProfilePage() {
             {isActive ? "Активный" : "Стандартный"}
           </span>
           <div className="priority-progress">
-            <span style={{ width: `${Math.min(100, (visits / 3) * 100)}%` }} />
+            <span
+              style={{
+                width: `${isActive ? 100 : Math.min(100, (visits / 3) * 100)}%`,
+              }}
+            />
           </div>
           <p>
             {isActive

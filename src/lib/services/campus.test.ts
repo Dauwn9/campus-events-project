@@ -63,6 +63,17 @@ function published(minutes = 10, capacity = 1) {
   return event;
 }
 
+test("Сохраняет выбранную обложку в локальных данных события", () => {
+  const event = makeEvent();
+  const imageUrl = "data:image/png;base64,iVBORw0KGgo=";
+  saveCampusEvent(org, { ...event, imageUrl }, event.id);
+
+  assert.equal(
+    readStore().events.find((item) => item.id === event.id)?.imageUrl,
+    imageUrl,
+  );
+});
+
 test("Роли и принадлежность: студент не создаёт событие, организатор не меняет чужое, подмена роли не проходит", () => {
   const event = makeEvent();
   assert.throws(() => saveCampusEvent(student, event), /роли/);

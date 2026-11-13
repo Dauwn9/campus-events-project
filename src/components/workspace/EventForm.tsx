@@ -50,6 +50,12 @@ export default function EventForm({
 }) {
   const [state, action, pending] = useActionState(saveEventAction, {});
   const formRef = useRef<HTMLFormElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const coverObjectUrlRef = useRef<string | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState(event?.imageUrl ?? "");
+  const [coverFileName, setCoverFileName] = useState("");
+  const [coverError, setCoverError] = useState("");
+  const [coverRemoved, setCoverRemoved] = useState(false);
   const [values, setValues] = useState({
     title: event?.title ?? "",
     description: event?.description ?? "",
@@ -61,6 +67,14 @@ export default function EventForm({
     registrationOpensAt: localValue(event?.registrationOpensAt),
     priorityWindowHours: String(event?.priorityWindowHours ?? 0),
   });
+
+  useEffect(
+    () => () => {
+      if (coverObjectUrlRef.current)
+        URL.revokeObjectURL(coverObjectUrlRef.current);
+    },
+    [],
+  );
 
   // Ошибки с клиента (проверяем до отправки).
   const [clientErrors, setClientErrors] = useState<FieldErrors>({});
@@ -126,6 +140,62 @@ export default function EventForm({
       </p>
     ) : null;
 
+  function clearCoverPreview() {
+    if (coverObjectUrlRef.current) {
+      URL.revokeObjectURL(coverObjectUrlRef.current);
+      coverObjectUrlRef.current = null;
+    }
+  }
+
+  function rejectCoverSelection(
+    input: HTMLInputElement,
+    message: string,
+  ) {
+    input.value = "";
+    clearCoverPreview();
+    setCoverPreviewUrl(event?.imageUrl ?? "");
+    setCoverFileName("");
+    setCoverError(message);
+    setCoverRemoved(false);
+  }
+
+  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      rejectCoverSelection(e.target, "Размер фото не должен превышать 4 МБ.");
+      return;
+    }
+    if (
+      file.type &&
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+    ) {
+      rejectCoverSelection(
+        e.target,
+        "Загрузите изображение в формате JPG, PNG или WebP.",
+      );
+      return;
+    }
+
+    clearCoverPreview();
+    const previewUrl = URL.createObjectURL(file);
+    coverObjectUrlRef.current = previewUrl;
+    setCoverPreviewUrl(previewUrl);
+    setCoverFileName(file.name);
+    setCoverError("");
+    setCoverRemoved(false);
+  }
+
+  function removeCover() {
+    clearCoverPreview();
+    if (coverInputRef.current) coverInputRef.current.value = "";
+    setCoverPreviewUrl("");
+    setCoverFileName("");
+    setCoverError("");
+    setCoverRemoved(true);
+  }
+
   return (
     <div className="workspace-columns event-editor">
       <form
@@ -145,6 +215,11 @@ export default function EventForm({
         className="workspace-panel editor-form"
       >
         <input type="hidden" name="id" value={event?.id ?? ""} />
+        <input
+          type="hidden"
+          name="removeCover"
+          value={coverRemoved ? "true" : ""}
+        />
         <fieldset disabled={pending}>
           <div className="panel-heading">
             <h2>Информация о событии</h2>
@@ -196,6 +271,50 @@ export default function EventForm({
               />
               {fieldError("capacity")}
             </label>
+          </div>
+          <div className="event-cover-field">
+            <div>
+              <strong>Обложка афиши</strong>
+              <p>JPG, PNG или WebP, до 4 МБ.</p>
+            </div>
+            <div className="event-cover-actions">
+              <button
+                className="workspace-button secondary"
+                type="button"
+                onClick={() => coverInputRef.current?.click()}
+                disabled={pending}
+              >
+                {coverPreviewUrl ? "Заменить фото" : "Добавить фото"}
+              </button>
+              {coverPreviewUrl && (
+                <button
+                  className="workspace-button secondary"
+                  type="button"
+                  onClick={removeCover}
+                  disabled={pending}
+                >
+                  Убрать фото
+                </button>
+              )}
+              <input
+                ref={coverInputRef}
+                className="sr-only"
+                type="file"
+                name="coverFile"
+                accept="image/jpeg,image/png,image/webp"
+                aria-label="Фото обложки афиши"
+                onChange={handleCoverChange}
+                disabled={pending}
+              />
+            </div>
+            {coverFileName && (
+              <p className="event-cover-filename">{coverFileName}</p>
+            )}
+            {coverError && (
+              <p className="form-error field-error" role="alert">
+                {coverError}
+              </p>
+            )}
           </div>
           <div className="panel-heading form-section">
             <h2>Время и место</h2>
@@ -280,7 +399,11 @@ export default function EventForm({
         <section className="workspace-panel">
           <span className="section-kicker">ТАК СОБЫТИЕ УВИДЯТ СТУДЕНТЫ</span>
           <div className="editor-preview">
-            <EventPoster categoryId={values.categoryId} />
+            <EventPoster
+              categoryId={values.categoryId}
+              title={values.title}
+              imageUrl={coverPreviewUrl || undefined}
+            />
             <div>
               <span className="category-label">
                 {categories.find((c) => c.id === values.categoryId)?.name}

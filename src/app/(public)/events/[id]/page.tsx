@@ -41,7 +41,7 @@ export default async function EventPage({
         ← К афише
       </Link>
       <article className="space-y-4">
-        <div className="detail-cover"><EventPoster categoryId={event.categoryId} large /></div>
+        <div className="detail-cover"><EventPoster categoryId={event.categoryId} title={event.title} imageUrl={event.imageUrl} large /></div>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-3xl font-bold">{event.title}</h1>
           {category && <Badge>{category.name}</Badge>}

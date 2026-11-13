@@ -95,8 +95,12 @@ export function filterAuditEntries(
   filters: AuditHistoryFilters,
 ) {
   const q = (filters.q ?? "").trim().toLowerCase();
-  const from = filters.from ? new Date(filters.from) : null;
-  const to = filters.to ? new Date(filters.to) : null;
+  const from = filters.from && !Number.isNaN(new Date(filters.from).getTime())
+    ? filters.from
+    : null;
+  const to = filters.to && !Number.isNaN(new Date(filters.to).getTime())
+    ? filters.to
+    : null;
 
   return entries.filter((entry) => {
     if (filters.type && getAuditEntityType(entry) !== filters.type) return false;
@@ -106,9 +110,17 @@ export function filterAuditEntries(
       const actorRole = (entry as CampusAuditEntry & { actorRole?: string }).actorRole ?? "ADMIN";
       if (actorRole !== filters.actor) return false;
     }
-    const occurredAt = new Date(entry.occurredAt);
-    if (from && occurredAt < from) return false;
-    if (to && occurredAt > to) return false;
+    const occurredAt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Qyzylorda",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(entry.occurredAt));
+    const datePart = (type: Intl.DateTimeFormatPartTypes) =>
+      occurredAt.find((part) => part.type === type)?.value ?? "";
+    const occurredDate = `${datePart("year")}-${datePart("month")}-${datePart("day")}`;
+    if (from && occurredDate < from) return false;
+    if (to && occurredDate > to) return false;
     if (!q) return true;
 
     const searchText = [

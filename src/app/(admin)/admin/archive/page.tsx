@@ -69,7 +69,11 @@ export default async function AdminArchivePage({
                 key={event.id}
               >
                 <div className="moderation-cover">
-                  <EventPoster categoryId={event.categoryId} />
+                  <EventPoster
+                    categoryId={event.categoryId}
+                    title={event.title}
+                    imageUrl={event.imageUrl}
+                  />
                   <Status value={event.status} />
                 </div>
                 <div className="moderation-body">

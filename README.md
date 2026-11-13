@@ -36,6 +36,10 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 После изменения переменных окружения перезапустите dev-сервер. В демо доступны афиша и события, комментарии, обзор администратора и управление категориями. Управление категориями и обзор находятся в `/admin`; для проверки переключите роль на администратора в dev-панели.
 
+### Обложки афиш
+
+Выберите фото на компьютере — JPG, PNG или WebP размером до 4 МБ. Обложки сохраняются вместе с локальными демо-данными в `.data/campus-demo.json`; Cloudinary не требуется. Папка `.data` не включается в Git. Такое хранение предназначено для локального запуска: на Vercel изменения локальных файлов не сохраняются постоянно.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

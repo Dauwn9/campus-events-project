@@ -54,7 +54,11 @@ export default async function ModerationPage({
           {events.map((event) => (
             <article className="moderation-card workspace-panel" key={event.id}>
               <div className="moderation-cover">
-                <EventPoster categoryId={event.categoryId} />
+                <EventPoster
+                  categoryId={event.categoryId}
+                  title={event.title}
+                  imageUrl={event.imageUrl}
+                />
                 <Status value={event.status} />
               </div>
               <div className="moderation-body">

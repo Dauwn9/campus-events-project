@@ -108,37 +108,46 @@ export default function ProfileForm({
       onSubmit={validateBeforeSubmit}
     >
       <fieldset disabled={pending}>
-        <label htmlFor="profile-name">Имя и фамилия</label>
-        <input
-          id="profile-name"
-          name="name"
-          value={values.name}
-          minLength={2}
-          maxLength={80}
-          aria-invalid={Boolean(fieldError("name"))}
-          aria-describedby={
-            fieldError("name") ? "profile-name-error" : undefined
-          }
-          onChange={(event) => updateValue("name", event.target.value)}
-        />
-        {fieldError("name") && (
-          <p id="profile-name-error" className="field-error" role="alert">
-            {fieldError("name")}
-          </p>
-        )}
+        <div className="profile-field">
+          <label htmlFor="profile-name">Имя и фамилия</label>
+          <input
+            id="profile-name"
+            name="name"
+            value={values.name}
+            minLength={2}
+            maxLength={80}
+            aria-invalid={Boolean(fieldError("name"))}
+            aria-describedby={
+              fieldError("name") ? "profile-name-error" : undefined
+            }
+            onChange={(event) => updateValue("name", event.target.value)}
+          />
+          {fieldError("name") && (
+            <p id="profile-name-error" className="field-error" role="alert">
+              {fieldError("name")}
+            </p>
+          )}
+        </div>
 
-        <label htmlFor="profile-email">Email</label>
-        <input id="profile-email" value={email} disabled readOnly />
+        <div className="profile-field">
+          <label htmlFor="profile-email">Email</label>
+          <input id="profile-email" value={email} disabled readOnly />
+        </div>
 
-        <label htmlFor="profile-group">Учебная группа</label>
-        <input
-          id="profile-group"
-          value={group || "Не указана — обратитесь к администратору"}
-          disabled
-          readOnly
-        />
-        <label htmlFor="profile-school">Высшая школа</label>
-        <input id="profile-school" value={school} disabled readOnly />
+        <div className="profile-field">
+          <label htmlFor="profile-group">Учебная группа</label>
+          <input
+            id="profile-group"
+            value={group || "Не указана — обратитесь к администратору"}
+            disabled
+            readOnly
+          />
+        </div>
+
+        <div className="profile-field">
+          <label htmlFor="profile-school">Высшая школа</label>
+          <input id="profile-school" value={school} disabled readOnly />
+        </div>
 
         <div className="form-section">
           <h3>Изменить пароль</h3>
@@ -148,83 +157,89 @@ export default function ProfileForm({
           </p>
         </div>
 
-        <label htmlFor="profile-current-password">Текущий пароль</label>
-        <input
-          id="profile-current-password"
-          type="password"
-          name="currentPassword"
-          autoComplete="current-password"
-          maxLength={128}
-          value={values.currentPassword}
-          aria-invalid={Boolean(fieldError("currentPassword"))}
-          aria-describedby={
-            fieldError("currentPassword")
-              ? "profile-current-password-error"
-              : undefined
-          }
-          onChange={(event) =>
-            updateValue("currentPassword", event.target.value)
-          }
-        />
-        {fieldError("currentPassword") && (
-          <p
-            id="profile-current-password-error"
-            className="field-error"
-            role="alert"
-          >
-            {fieldError("currentPassword")}
-          </p>
-        )}
+        <div className="profile-field">
+          <label htmlFor="profile-current-password">Текущий пароль</label>
+          <input
+            id="profile-current-password"
+            type="password"
+            name="currentPassword"
+            autoComplete="current-password"
+            maxLength={128}
+            value={values.currentPassword}
+            aria-invalid={Boolean(fieldError("currentPassword"))}
+            aria-describedby={
+              fieldError("currentPassword")
+                ? "profile-current-password-error"
+                : undefined
+            }
+            onChange={(event) =>
+              updateValue("currentPassword", event.target.value)
+            }
+          />
+          {fieldError("currentPassword") && (
+            <p
+              id="profile-current-password-error"
+              className="field-error"
+              role="alert"
+            >
+              {fieldError("currentPassword")}
+            </p>
+          )}
+        </div>
 
-        <label htmlFor="profile-new-password">Новый пароль</label>
-        <input
-          id="profile-new-password"
-          type="password"
-          name="password"
-          autoComplete="new-password"
-          maxLength={128}
-          value={values.password}
-          aria-invalid={Boolean(fieldError("password"))}
-          aria-describedby={
-            fieldError("password") ? "profile-password-error" : undefined
-          }
-          onChange={(event) => updateValue("password", event.target.value)}
-        />
-        {fieldError("password") && (
-          <p id="profile-password-error" className="field-error" role="alert">
-            {fieldError("password")}
-          </p>
-        )}
+        <div className="profile-field">
+          <label htmlFor="profile-new-password">Новый пароль</label>
+          <input
+            id="profile-new-password"
+            type="password"
+            name="password"
+            autoComplete="new-password"
+            maxLength={128}
+            value={values.password}
+            aria-invalid={Boolean(fieldError("password"))}
+            aria-describedby={
+              fieldError("password") ? "profile-password-error" : undefined
+            }
+            onChange={(event) => updateValue("password", event.target.value)}
+          />
+          {fieldError("password") && (
+            <p id="profile-password-error" className="field-error" role="alert">
+              {fieldError("password")}
+            </p>
+          )}
+        </div>
 
-        <label htmlFor="profile-password-confirmation">
-          Повторите новый пароль
-        </label>
-        <input
-          id="profile-password-confirmation"
-          type="password"
-          name="passwordConfirmation"
-          autoComplete="new-password"
-          maxLength={128}
-          value={values.passwordConfirmation}
-          aria-invalid={Boolean(fieldError("passwordConfirmation"))}
-          aria-describedby={
-            fieldError("passwordConfirmation")
-              ? "profile-password-confirmation-error"
-              : undefined
-          }
-          onChange={(event) =>
-            updateValue("passwordConfirmation", event.target.value)
-          }
-        />
-        {fieldError("passwordConfirmation") && (
-          <p
-            id="profile-password-confirmation-error"
-            className="field-error"
-            role="alert"
-          >
-            {fieldError("passwordConfirmation")}
-          </p>
-        )}
+        <div className="profile-field">
+          <label htmlFor="profile-password-confirmation">
+            Повторите новый пароль
+          </label>
+          <input
+            id="profile-password-confirmation"
+            type="password"
+            name="passwordConfirmation"
+            autoComplete="new-password"
+            maxLength={128}
+            value={values.passwordConfirmation}
+            aria-invalid={Boolean(fieldError("passwordConfirmation"))}
+            aria-describedby={
+              fieldError("passwordConfirmation")
+                ? "profile-password-confirmation-error"
+                : undefined
+            }
+            onChange={(event) =>
+              updateValue("passwordConfirmation", event.target.value)
+            }
+          />
+          {fieldError("passwordConfirmation") && (
+            <p
+              id="profile-password-confirmation-error"
+              className="field-error"
+              role="alert"
+            >
+              {fieldError("passwordConfirmation")}
+            </p>
+          )}
+        </div>
 
         <button className="workspace-button">Сохранить профиль</button>
       </fieldset>

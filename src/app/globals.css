@@ -166,6 +166,14 @@ a.text-primary { display: inline-flex; min-height: 44px; min-width: 44px; align-
 .poster-art .poster-symbol { right: 12px; top: 47px; transform: rotate(-25deg); opacity: .3; font-size: 114px; }
 .poster-sport { background: #416866; color: #d9edbd; }
 .poster-education { background: #b3a8c9; color: #353159; }
+.poster-headline.poster-event-title { display: -webkit-box; max-width: 84%; overflow: hidden; font-size: clamp(18px, 2.2vw, 30px); line-height: 1.04; letter-spacing: -.7px; white-space: normal; text-wrap: balance; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.poster-with-image { background: #181c3d; color: #fff; }
+.poster-cover-image { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.poster-with-image::after { content: ""; position: absolute; z-index: 1; inset: 0; background: linear-gradient(90deg, #181c3de8 0%, #181c3d99 55%, #181c3d24 100%); }
+.poster-with-image .poster-overline,
+.poster-with-image .poster-symbol,
+.poster-with-image .poster-headline,
+.poster-with-image .poster-subline { z-index: 2; }
 .card-date { position: absolute; top: 39px; right: 13px; background: #f8f9fcf2; backdrop-filter: blur(8px); border: 1px solid #ffffff45; width: 39px; height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 5px; box-shadow: 0 2px 10px #181c3d0c; z-index: 2; color: #252a47; }
 .card-date strong { font-size: 20px; line-height: 1.05; letter-spacing: -1px; }
 .card-date > span { font-size: 8px; margin-top: 2px; text-transform: uppercase; }
@@ -255,6 +263,7 @@ a.text-primary { display: inline-flex; min-height: 44px; min-width: 44px; align-
 .poster-large .poster-overline { font-size: 20px; }
 .poster-large .poster-overline > span { font-size: 8px; }
 .poster-large.poster-art .poster-headline { font-size: 56px; }
+.poster-large .poster-headline.poster-event-title { max-width: 88%; font-size: clamp(28px, 4vw, 48px); letter-spacing: -1.6px; }
 
 @media (min-width: 1600px) { .hero-copy h1 { font-size: 54px; } .hero-copy { padding-top: 48px; } .campus-hero { min-height: 495px; } }
 @media (max-width: 1200px) {

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Icon from "@/components/ui/Icon";
+import HistoryDatePicker from "@/components/admin/HistoryDatePicker";
+import HistoryFilterSelect from "@/components/admin/HistoryFilterSelect";
 import {
   AUDIT_ACTION_OPTIONS,
   AUDIT_ACTOR_OPTIONS,
@@ -14,10 +16,12 @@ export default function HistoryFilters({
   initialFilters,
   totalCount,
   activeEntityLabel,
+  now,
 }: {
   initialFilters: AuditHistoryFilters;
   totalCount: number;
   activeEntityLabel?: string | null;
+  now: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -55,11 +59,29 @@ export default function HistoryFilters({
     setFilters({});
   };
 
-  const hasActiveEntity = Boolean(initialFilters.entityId);
+  const hasActiveEntity = Boolean(filters.entityId);
+  const countLabel = totalCount % 10 === 1 && totalCount % 100 !== 11
+    ? "запись"
+    : totalCount % 10 >= 2 && totalCount % 10 <= 4 && (totalCount % 100 < 12 || totalCount % 100 > 14)
+      ? "записи"
+      : "записей";
 
   return (
-    <section className="workspace-panel" aria-label="Фильтры истории изменений">
-      <div className="table-filters history-filters">
+    <section className="workspace-panel history-filter-panel" aria-label="Фильтры истории изменений">
+      <div className="history-filter-heading">
+        <div className="history-filter-title">
+          <span className="history-filter-icon"><Icon name="spark" size={17} /></span>
+          <div>
+            <span className="history-filter-eyebrow">ПОИСК ПО ЖУРНАЛУ</span>
+            <h2>Настройте фильтры</h2>
+          </div>
+        </div>
+        <span className="history-result-count" role="status" aria-live="polite">
+          <strong>{totalCount}</strong> {countLabel}
+        </span>
+      </div>
+
+      <div className="history-filter-controls">
         <label className="workspace-search">
           <Icon name="search" size={17} />
           <input
@@ -69,75 +91,49 @@ export default function HistoryFilters({
             onChange={(event) => setSearchDraft(event.target.value)}
           />
         </label>
-        <select
-          aria-label="Тип сущности"
+        <HistoryFilterSelect
+          label="Объект"
           value={filters.type ?? "all"}
-          onChange={(event) => handleSelect("type", event.target.value)}
-        >
-          <option value="all">Все сущности</option>
-          {AUDIT_ENTITY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Тип действия"
+          options={[{ value: "all", label: "Все сущности" }, ...AUDIT_ENTITY_OPTIONS]}
+          onChange={(value) => handleSelect("type", value)}
+        />
+        <HistoryFilterSelect
+          label="Действие"
           value={filters.action ?? "all"}
-          onChange={(event) => handleSelect("action", event.target.value)}
-        >
-          {AUDIT_ACTION_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Кто выполнил действие"
+          options={AUDIT_ACTION_OPTIONS}
+          onChange={(value) => handleSelect("action", value)}
+        />
+        <HistoryFilterSelect
+          label="Участник"
           value={filters.actor ?? "all"}
-          onChange={(event) => handleSelect("actor", event.target.value)}
-        >
-          {AUDIT_ACTOR_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          options={AUDIT_ACTOR_OPTIONS}
+          onChange={(value) => handleSelect("actor", value)}
+        />
       </div>
 
       <div className="history-filter-row">
-        <label className="history-date-field">
-          <span>От</span>
-          <input
-            type="date"
-            aria-label="Дата начала периода"
-            value={filters.from ?? ""}
-            onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value || undefined }))}
-          />
-        </label>
-        <label className="history-date-field">
-          <span>До</span>
-          <input
-            type="date"
-            aria-label="Дата окончания периода"
-            value={filters.to ?? ""}
-            onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value || undefined }))}
-          />
-        </label>
-        <button type="button" className="workspace-button secondary" onClick={resetFilters}>
+        <HistoryDatePicker
+          from={filters.from}
+          to={filters.to}
+          now={now}
+          onRangeChange={(from, to) => setFilters((current) => ({
+            ...current,
+            from: from || undefined,
+            to: to || undefined,
+          }))}
+        />
+        <button type="button" className="workspace-button secondary history-reset" onClick={resetFilters}>
           Сбросить фильтры
         </button>
-        <span className="history-result-count">Найдено: {totalCount}</span>
+        {hasActiveEntity && (
+          <div className="history-entity-pill" role="status" aria-live="polite">
+            История: {activeEntityLabel ?? "сущность"}
+            <button type="button" aria-label="Сбросить фильтр по сущности" onClick={resetFilters}>
+              ✕
+            </button>
+          </div>
+        )}
       </div>
-
-      {hasActiveEntity && (
-        <div className="history-entity-pill" role="status" aria-live="polite">
-          История: {activeEntityLabel ?? "сущность"}
-          <button type="button" aria-label="Сбросить фильтр по сущности" onClick={resetFilters}>
-            ✕
-          </button>
-        </div>
-      )}
     </section>
   );
 }
