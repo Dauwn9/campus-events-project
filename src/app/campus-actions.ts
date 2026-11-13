@@ -33,7 +33,7 @@ export type ActionState = {
   message?: string;
   fieldErrors?: Record<string, string>;
 };
-export type ProfileActionState = Omit<ActionState, "fieldErrors"> & {
+export type ProfileActionState = ActionState & {
   fieldErrors?: Partial<Record<ProfileField, string>>;
 };
 export type CheckInState = ActionState & {
