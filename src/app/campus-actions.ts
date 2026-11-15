@@ -22,6 +22,7 @@ import {
 } from "@/lib/services/campus";
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
+import { moderateEvent } from "@/lib/services/admin";
 
 export type ActionState = { error?: string; message?: string };
 export type CheckInState = ActionState & {
@@ -114,7 +115,17 @@ export async function eventOperationAction(
         "restore",
       ])
       .parse(operation);
-    if (validatedOperation === "archive") archiveAdminEvent(actor, id);
+    if (
+      validatedOperation === "approve" ||
+      validatedOperation === "reject"
+    ) {
+      await moderateEvent(
+        actor,
+        id,
+        validatedOperation,
+        text(form, "reason"),
+      );
+    } else if (validatedOperation === "archive") archiveAdminEvent(actor, id);
     else if (validatedOperation === "restore") restoreAdminEvent(actor, id);
     else
       changeEventStatus(actor, id, validatedOperation, text(form, "reason"));

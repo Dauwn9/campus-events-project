@@ -8,6 +8,7 @@ export type ServiceErrorCode =
   | "FORBIDDEN"
   | "ALREADY_EXISTS"
   | "CATEGORY_IN_USE"
+  | "MODERATION_CLOSED"
   | "INTERNAL";
 
 export class ServiceError extends Error {

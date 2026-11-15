@@ -7,6 +7,7 @@ import { ServiceError } from "@/lib/services/errors";
 import {
   archiveCategory,
   createCategory,
+  makeCategorySlug,
   restoreCategory,
   updateCategory,
 } from "@/lib/services/categories";
@@ -15,24 +16,6 @@ import { categoryInputSchema } from "@/lib/validators/category";
 import { createCommentInputSchema } from "@/lib/validators/comment";
 
 const categoryPath = "/admin/categories";
-
-const cyrillicToLatin: Record<string, string> = {
-  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh",
-  з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o",
-  п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts",
-  ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu",
-  я: "ya",
-};
-
-function makeSlug(value: string) {
-  return value
-    .toLowerCase()
-    .split("")
-    .map((character) => cyrillicToLatin[character] ?? character)
-    .join("")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 function redirectWithCategoryError(error: unknown): never {
   if (error instanceof ServiceError) {
@@ -46,7 +29,7 @@ export async function createCategoryAction(formData: FormData) {
   const name = formData.get("name");
   const parsed = categoryInputSchema.safeParse({
     name,
-    slug: typeof name === "string" ? makeSlug(name) : "",
+    slug: typeof name === "string" ? makeCategorySlug(name) : "",
   });
   if (!parsed.success) redirect(`${categoryPath}?error=invalid`);
 
@@ -70,7 +53,7 @@ export async function updateCategoryAction(formData: FormData) {
   }
   const parsed = categoryInputSchema.safeParse({
     name,
-    slug: typeof name === "string" ? makeSlug(name) : "",
+    slug: typeof name === "string" ? makeCategorySlug(name) : "",
   });
   if (!parsed.success) redirect(`${categoryPath}?error=invalid`);
 

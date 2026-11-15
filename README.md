@@ -36,6 +36,16 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 После изменения переменных окружения перезапустите dev-сервер. В демо доступны афиша и события, комментарии, обзор администратора и управление категориями. Управление категориями и обзор находятся в `/admin`; для проверки переключите роль на администратора в dev-панели.
 
+## Реальная база данных
+
+Для работы без моков задайте `DATABASE_URL` и установите `NEXT_PUBLIC_USE_MOCKS=false`. Перед запуском приложения примените миграции:
+
+```bash
+npx prisma migrate deploy --config prisma7.config.ts
+```
+
+Для Vercel добавьте эти переменные в Environment Variables проекта и запустите новый деплой. Не запускайте `prisma db seed` на базе с нужными данными: текущий seed очищает таблицы перед заполнением.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

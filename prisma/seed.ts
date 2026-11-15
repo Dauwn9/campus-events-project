@@ -64,12 +64,14 @@ async function main() {
   // --- категории ---
   const [catIT, catSport, catScience, catVolunteer, catCareer, catArt] =
     await Promise.all([
-      prisma.category.create({ data: { name: "IT" } }),
-      prisma.category.create({ data: { name: "Спорт" } }),
-      prisma.category.create({ data: { name: "Наука" } }),
-      prisma.category.create({ data: { name: "Волонтерство" } }),
-      prisma.category.create({ data: { name: "Карьера" } }),
-      prisma.category.create({ data: { name: "Искусство" } }),
+      prisma.category.create({ data: { name: "IT", slug: "it" } }),
+      prisma.category.create({ data: { name: "Спорт", slug: "sport" } }),
+      prisma.category.create({ data: { name: "Наука", slug: "science" } }),
+      prisma.category.create({
+        data: { name: "Волонтерство", slug: "volunteer" },
+      }),
+      prisma.category.create({ data: { name: "Карьера", slug: "career" } }),
+      prisma.category.create({ data: { name: "Искусство", slug: "art" } }),
     ]);
 
   // --- пользователи ---

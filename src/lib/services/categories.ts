@@ -5,19 +5,105 @@ import {
   categoryInputSchema,
   type CategoryInput,
 } from "@/lib/validators/category";
-import { ServiceError } from "./errors";
+import { ServiceError, USE_MOCKS } from "./errors";
+import { getPrisma } from "@/lib/prisma";
+
+const cyrillicToLatin: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh",
+  з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o",
+  п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts",
+  ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu",
+  я: "ya",
+};
+
+export function makeCategorySlug(value: string) {
+  return value
+    .toLowerCase()
+    .split("")
+    .map((character) => cyrillicToLatin[character] ?? character)
+    .join("")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function toCategory(category: {
+  id: string;
+  name: string;
+  slug: string;
+  archivedAt: Date | null;
+}) {
+  return {
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    archivedAt: category.archivedAt?.toISOString() ?? null,
+  };
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
+}
+
 export async function getCategories() {
+  if (!USE_MOCKS) {
+    const categories = await getPrisma().category.findMany({
+      where: { archivedAt: null },
+      orderBy: { name: "asc" },
+    });
+    return categories.map(toCategory);
+  }
   return readStore().categories.filter((category) => !category.archivedAt);
 }
 export async function getCategoryById(id: string) {
+  if (!USE_MOCKS) {
+    const category = await getPrisma().category.findUnique({ where: { id } });
+    return category ? toCategory(category) : null;
+  }
   return readStore().categories.find((c) => c.id === id) ?? null;
 }
 export async function getCategoryBySlug(slug: string) {
+  if (!USE_MOCKS) {
+    const category = await getPrisma().category.findUnique({
+      where: { slug },
+    });
+    return category && !category.archivedAt ? toCategory(category) : null;
+  }
   return readStore().categories.find((c) => c.slug === slug) ?? null;
 }
 export async function createCategory(input: CategoryInput) {
   const actor = await requireRole("ADMIN");
   const parsed = categoryInputSchema.parse(input);
+  if (!USE_MOCKS) {
+    const duplicate = await getPrisma().category.findFirst({
+      where: {
+        OR: [
+          { name: { equals: parsed.name, mode: "insensitive" } },
+          { slug: parsed.slug },
+        ],
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ServiceError("ALREADY_EXISTS", "Категория уже существует");
+    }
+
+    try {
+      const category = await getPrisma().category.create({
+        data: { name: parsed.name, slug: parsed.slug },
+      });
+      return toCategory(category);
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ServiceError("ALREADY_EXISTS", "Категория уже существует");
+      }
+      throw error;
+    }
+  }
   return changeStore((store) => {
     if (
       store.categories.some(
@@ -46,6 +132,47 @@ export async function updateCategory(
 ) {
   const actor = await requireRole("ADMIN");
   const parsed = categoryInputSchema.partial().parse(input);
+  if (!USE_MOCKS) {
+    const category = await getPrisma().category.findUnique({ where: { id } });
+    if (!category) return null;
+    if (category.archivedAt) {
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Сначала восстановите категорию из архива.",
+      );
+    }
+    if (parsed.name) {
+      const duplicate = await getPrisma().category.findFirst({
+        where: {
+          id: { not: id },
+          OR: [
+            { name: { equals: parsed.name, mode: "insensitive" } },
+            { slug: parsed.slug },
+          ],
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new ServiceError("ALREADY_EXISTS", "Категория уже существует");
+      }
+    }
+
+    try {
+      const updated = await getPrisma().category.update({
+        where: { id },
+        data: {
+          ...(parsed.name ? { name: parsed.name } : {}),
+          ...(parsed.slug ? { slug: parsed.slug } : {}),
+        },
+      });
+      return toCategory(updated);
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ServiceError("ALREADY_EXISTS", "Категория уже существует");
+      }
+      throw error;
+    }
+  }
   return changeStore((store) => {
     const category = store.categories.find((c) => c.id === id);
     if (!category) return null;
@@ -106,6 +233,37 @@ function recordCategoryAudit(
 
 export async function archiveCategory(id: string) {
   const actor = await requireRole("ADMIN");
+  if (!USE_MOCKS) {
+    return getPrisma().$transaction(async (transaction) => {
+      const category = await transaction.category.findUnique({
+        where: { id },
+      });
+      if (!category) {
+        throw new ServiceError("NOT_FOUND", "Категория не найдена.");
+      }
+      if (category.archivedAt) {
+        throw new ServiceError(
+          "FORBIDDEN",
+          "Категория уже находится в архиве.",
+        );
+      }
+      const eventCount = await transaction.event.count({
+        where: { categoryId: id },
+      });
+      if (eventCount > 0) {
+        throw new ServiceError(
+          "CATEGORY_IN_USE",
+          "Сначала архивируйте или перенесите события этой категории.",
+        );
+      }
+      return toCategory(
+        await transaction.category.update({
+          where: { id },
+          data: { archivedAt: new Date() },
+        }),
+      );
+    });
+  }
   return changeStore((store) => {
     const category = store.categories.find((item) => item.id === id);
     if (!category) throw new ServiceError("NOT_FOUND", "Категория не найдена.");
@@ -134,6 +292,24 @@ export async function archiveCategory(id: string) {
 
 export async function restoreCategory(id: string) {
   const actor = await requireRole("ADMIN");
+  if (!USE_MOCKS) {
+    const category = await getPrisma().category.findUnique({ where: { id } });
+    if (!category) {
+      throw new ServiceError("NOT_FOUND", "Категория не найдена.");
+    }
+    if (!category.archivedAt) {
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Категория не находится в архиве.",
+      );
+    }
+    return toCategory(
+      await getPrisma().category.update({
+        where: { id },
+        data: { archivedAt: null },
+      }),
+    );
+  }
   return changeStore((store) => {
     const category = store.categories.find((item) => item.id === id);
     if (!category) throw new ServiceError("NOT_FOUND", "Категория не найдена.");
@@ -153,6 +329,16 @@ export async function restoreCategory(id: string) {
 
 export async function getAdminCategories() {
   await requireRole("ADMIN");
+  if (!USE_MOCKS) {
+    const categories = await getPrisma().category.findMany({
+      include: { _count: { select: { events: true } } },
+      orderBy: { name: "asc" },
+    });
+    return categories.map((category) => ({
+      ...toCategory(category),
+      eventCount: category._count.events,
+    }));
+  }
   const store = readStore();
   return store.categories.map((category) => ({
     ...category,
@@ -164,5 +350,12 @@ export async function getAdminCategories() {
 
 export async function getAdminArchivedCategories() {
   await requireRole("ADMIN");
+  if (!USE_MOCKS) {
+    const categories = await getPrisma().category.findMany({
+      where: { archivedAt: { not: null } },
+      orderBy: { archivedAt: "desc" },
+    });
+    return categories.map(toCategory);
+  }
   return readStore().categories.filter((category) => Boolean(category.archivedAt));
 }
