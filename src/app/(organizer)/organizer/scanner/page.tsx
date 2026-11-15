@@ -10,12 +10,13 @@ export default async function ScannerPage({
   const actor = await requireRole("ORGANIZER");
   const query = await searchParams;
   const store = readStore();
+  const now = new Date();
   const events = store.events
     .filter((e) => e.organizerId === actor.id && e.status === "PUBLISHED")
     .sort(
       (a, b) =>
-        Math.abs(Date.parse(a.startsAt) - Date.now()) -
-        Math.abs(Date.parse(b.startsAt) - Date.now()),
+        Math.abs(Date.parse(a.startsAt) - now.getTime()) -
+        Math.abs(Date.parse(b.startsAt) - now.getTime()),
     )
     .map((e) => ({
       id: e.id,

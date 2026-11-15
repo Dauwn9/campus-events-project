@@ -13,7 +13,11 @@ export default function StudentEventCard({
   return (
     <article className="student-event-card">
       <Link href={`/events/${event.id}`} className="student-card-cover">
-        <EventPoster categoryId={event.categoryId} />
+        <EventPoster
+          categoryId={event.categoryId}
+          title={event.title}
+          imageUrl={event.imageUrl}
+        />
       </Link>
       <div className="student-card-body">
         <span className="section-kicker">

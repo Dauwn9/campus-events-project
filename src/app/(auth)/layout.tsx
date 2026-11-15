@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function AuthLayout({
   children,
 }: {
@@ -6,9 +8,9 @@ export default function AuthLayout({
   return (
     <main className="auth-layout" id="main-content">
       <aside className="auth-story">
-        <a href="/" className="auth-logo">
+        <Link href="/" className="auth-logo">
           AIU <span>campus events</span>
-        </a>
+        </Link>
         <div>
           <span className="section-kicker">БОЛЬШЕ, ЧЕМ УЧЁБА</span>
           <h2>

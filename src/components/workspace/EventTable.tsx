@@ -56,13 +56,13 @@ export default function EventTable({ events }: { events: Event[] }) {
           <tbody>
             {filtered.map((event) => (
               <tr key={event.id}>
-                <td>
+                <td data-label="Событие">
                   <Link className="table-title" href={`/organizer/${event.id}`}>
                     {event.title}
                   </Link>
                   <small>{event.location}</small>
                 </td>
-                <td>
+                <td data-label="Дата и время">
                   {datePart(event.startsAt, {
                     day: "numeric",
                     month: "short",
@@ -76,7 +76,7 @@ export default function EventTable({ events }: { events: Event[] }) {
                     · Астана
                   </small>
                 </td>
-                <td>
+                <td data-label="Участники">
                   <strong>{event.registeredCount}</strong> / {event.capacity}
                   <span className="capacity-meter">
                     <span
@@ -86,7 +86,7 @@ export default function EventTable({ events }: { events: Event[] }) {
                     />
                   </span>
                 </td>
-                <td>
+                <td data-label="Статус">
                   <span
                     className={`status-tag status-${event.status.toLowerCase()}`}
                   >

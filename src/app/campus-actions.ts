@@ -12,6 +12,7 @@ import {
   toggleStudentFavorite,
   checkInParticipant,
   updateCampusUser,
+  updateStudentGroup,
   updateStudentProfile,
   archiveAdminEvent,
   restoreAdminEvent,
@@ -20,11 +21,24 @@ import {
   startSession,
   revokeSession,
 } from "@/lib/services/campus";
+import { getEventById } from "@/lib/services/events";
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
 import { moderateEvent } from "@/lib/services/admin";
+import { encodeEventCover, EventCoverError } from "@/lib/event-cover";
+import {
+  isProfileField,
+  type ProfileField,
+} from "@/lib/validators/profile";
 
-export type ActionState = { error?: string; message?: string };
+export type ActionState = {
+  error?: string;
+  message?: string;
+  fieldErrors?: Record<string, string>;
+};
+export type ProfileActionState = ActionState & {
+  fieldErrors?: Partial<Record<ProfileField, string>>;
+};
 export type CheckInState = ActionState & {
   kind?: "success" | "duplicate";
   name?: string;
@@ -33,14 +47,36 @@ export type CheckInState = ActionState & {
 };
 const text = (form: FormData, key: string) =>
   String(form.get(key) ?? "").trim();
+function issueText(issue: z.core.$ZodIssue): string {
+  if (issue.code === "custom") return issue.message;
+  if (issue.code === "too_small")
+    return issue.origin === "string"
+      ? `Минимум символов: ${issue.minimum}`
+      : `Не меньше ${issue.minimum}`;
+  if (issue.code === "too_big")
+    return issue.origin === "string"
+      ? `Максимум символов: ${issue.maximum}`
+      : `Не больше ${issue.maximum}`;
+  if (issue.code === "invalid_type")
+    return issue.expected === "number" ? "Введите число" : "Заполните поле";
+  if (issue.code === "invalid_format") return "Неверный формат";
+  return issue.message;
+}
 function errorState(error: unknown): ActionState {
-  if (error instanceof z.ZodError)
+  if (error instanceof z.ZodError) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of error.issues) {
+      const key = String(issue.path[0] ?? "");
+      if (key && !(key in fieldErrors)) fieldErrors[key] = issueText(issue);
+    }
     return {
       error: error.issues
         .map((i) => i.message)
         .slice(0, 3)
         .join(" · "),
+      fieldErrors,
     };
+  }
   if (error instanceof ServiceError) return { error: error.message };
   console.error(
     "Campus action failed",
@@ -63,6 +99,34 @@ export async function saveEventAction(
   form: FormData,
 ): Promise<ActionState> {
   const user = await requireRole("ORGANIZER");
+  const editId = text(form, "id") || undefined;
+  const previousEvent = editId ? await getEventById(editId) : null;
+  if (
+    Number(text(form, "priorityWindowHours") || 0) > 0 &&
+    !text(form, "registrationOpensAt")
+  )
+    return {
+      error: "Проверьте выделенные поля.",
+      fieldErrors: {
+        registrationOpensAt:
+          "Укажите дату открытия записи — без неё приоритетное окно не работает",
+      },
+    };
+  const removeCover = text(form, "removeCover") === "true";
+  const coverEntry = form.get("coverFile");
+  if (typeof coverEntry === "string" && coverEntry)
+    return { error: "Выберите файл изображения для обложки." };
+
+  let coverImageUrl: string | undefined;
+  if (coverEntry && typeof coverEntry !== "string" && (coverEntry.size > 0 || coverEntry.name)) {
+    try {
+      coverImageUrl = await encodeEventCover(coverEntry);
+    } catch (error) {
+      if (error instanceof EventCoverError) return { error: error.message };
+      return errorState(error);
+    }
+  }
+
   let id: string;
   try {
     const event = saveCampusEvent(
@@ -79,13 +143,15 @@ export async function saveEventAction(
         status: text(form, "intent") === "draft" ? "DRAFT" : "PENDING",
         priorityWindowHours: Number(text(form, "priorityWindowHours") || 0),
         registrationOpensAt: localTime(text(form, "registrationOpensAt")),
+        imageUrl: coverImageUrl ?? (removeCover ? undefined : previousEvent?.imageUrl),
       },
-      text(form, "id") || undefined,
+      editId,
     );
     id = event.id;
   } catch (error) {
     return errorState(error);
   }
+
   refresh();
   redirect(`/organizer/${id}?saved=1`);
 }
@@ -216,7 +282,7 @@ export async function updateUserAction(
 ): Promise<ActionState> {
   const actor = await requireRole("ADMIN");
   try {
-    updateCampusUser(
+    const result = updateCampusUser(
       actor,
       id,
       text(form, "role"),
@@ -224,27 +290,61 @@ export async function updateUserAction(
       text(form, "banDuration"),
     );
     refresh();
+    if (result.roleChanged) {
+      const roleLabels = {
+        STUDENT: "Студент",
+        ORGANIZER: "Организатор",
+        ADMIN: "Администратор",
+      };
+      return { message: `Роль изменена на «${roleLabels[result.role]}».` };
+    }
     return { message: "Права пользователя сохранены." };
   } catch (error) {
     return errorState(error);
   }
 }
-export async function profileAction(
+export async function updateStudentGroupAction(
+  id: string,
   _state: ActionState,
   form: FormData,
 ): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  try {
+    updateStudentGroup(actor, id, String(form.get("group") ?? ""));
+    refresh();
+    return { message: "Учебная группа сохранена." };
+  } catch (error) {
+    return errorState(error);
+  }
+}
+export async function profileAction(
+  _state: ProfileActionState,
+  form: FormData,
+): Promise<ProfileActionState> {
   const actor = await requireRole("STUDENT");
   try {
     updateStudentProfile(actor, {
       name: text(form, "name"),
-      group: text(form, "group"),
-      school: text(form, "school"),
       currentPassword: String(form.get("currentPassword") ?? ""),
       password: String(form.get("password") ?? ""),
+      passwordConfirmation: String(form.get("passwordConfirmation") ?? ""),
     });
     refresh();
     return { message: "Профиль сохранён." };
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      const fieldErrors: Partial<Record<ProfileField, string>> = {};
+      for (const issue of error.issues) {
+        const field = issue.path[0];
+        if (isProfileField(field) && !fieldErrors[field]) {
+          fieldErrors[field] = issue.message;
+        }
+      }
+      return { fieldErrors };
+    }
+    if (error instanceof ServiceError && error.code === "UNAUTHORIZED") {
+      return { fieldErrors: { currentPassword: error.message } };
+    }
     return errorState(error);
   }
 }

@@ -7,7 +7,7 @@
     "build": "prisma generate --config prisma7.config.ts && next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test src/lib/services/campus.test.ts"
+    "test": "node --import tsx --test src/lib/services/campus.test.ts src/lib/audit-history.test.ts src/lib/event-cover.test.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",

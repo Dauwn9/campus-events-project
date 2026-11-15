@@ -1,16 +1,15 @@
 "use client";
 
-import Button from "@/components/ui/Button";
+import ErrorState from "@/components/ui/ErrorState";
 
-export default function Error({ error, reset }: { error: Error; reset: () => void }) {
+export default function Error({ reset }: { error: Error; reset: () => void }) {
   return (
     <main className="mx-auto max-w-3xl px-4 py-6">
-      <div role="alert" className="rounded-lg bg-red-50 p-4 text-red-700">
-        <p>Не удалось загрузить ваши записи. {error.message}</p>
-        <Button onClick={reset} className="mt-3 min-h-11">
-          Повторить
-        </Button>
-      </div>
+      <ErrorState
+        title="Не удалось загрузить ваши записи"
+        text="Попробуйте обновить страницу или повторить запрос позже."
+        onRetry={reset}
+      />
     </main>
   );
 }

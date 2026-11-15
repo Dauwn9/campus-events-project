@@ -1,15 +1,46 @@
 "use client";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Event } from "@/lib/validators/event";
 import type { Category } from "@/lib/validators/category";
-import { saveEventAction } from "@/app/campus-actions";
+import { saveEventAction, type ActionState } from "@/app/campus-actions";
 import EventPoster from "@/components/events/EventPoster";
 import Icon from "@/components/ui/Icon";
 const localValue = (value?: string) =>
   value
     ? new Date(Date.parse(value) + 5 * 3600000).toISOString().slice(0, 16)
     : "";
+
+// Порядок полей на странице — по нему выбираем, куда ставить фокус.
+const fieldOrder = [
+  "title",
+  "description",
+  "categoryId",
+  "capacity",
+  "startsAt",
+  "endsAt",
+  "location",
+  "registrationOpensAt",
+  "priorityWindowHours",
+];
+
+type FieldErrors = Record<string, string>;
+
+function validateClient(v: {
+  startsAt: string;
+  endsAt: string;
+  registrationOpensAt: string;
+  priorityWindowHours: string;
+}): FieldErrors {
+  const errors: FieldErrors = {};
+  if (v.startsAt && v.endsAt && Date.parse(v.endsAt) <= Date.parse(v.startsAt))
+    errors.endsAt = "Окончание должно быть позже начала";
+  if (Number(v.priorityWindowHours) > 0 && !v.registrationOpensAt)
+    errors.registrationOpensAt =
+      "Укажите дату открытия записи — без неё приоритетное окно не работает";
+  return errors;
+}
+
 export default function EventForm({
   categories,
   event,
@@ -18,6 +49,13 @@ export default function EventForm({
   event?: Event;
 }) {
   const [state, action, pending] = useActionState(saveEventAction, {});
+  const formRef = useRef<HTMLFormElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const coverObjectUrlRef = useRef<string | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState(event?.imageUrl ?? "");
+  const [coverFileName, setCoverFileName] = useState("");
+  const [coverError, setCoverError] = useState("");
+  const [coverRemoved, setCoverRemoved] = useState(false);
   const [values, setValues] = useState({
     title: event?.title ?? "",
     description: event?.description ?? "",
@@ -29,23 +67,159 @@ export default function EventForm({
     registrationOpensAt: localValue(event?.registrationOpensAt),
     priorityWindowHours: String(event?.priorityWindowHours ?? 0),
   });
+
+  useEffect(
+    () => () => {
+      if (coverObjectUrlRef.current)
+        URL.revokeObjectURL(coverObjectUrlRef.current);
+    },
+    [],
+  );
+
+  // Ошибки с клиента (проверяем до отправки).
+  const [clientErrors, setClientErrors] = useState<FieldErrors>({});
+  // Ошибки с сервера. Когда человек правит поле, ошибку этого поля прячем,
+  // пока не придёт новый ответ сервера (тогда `state` станет другим объектом).
+  const [clearedBy, setClearedBy] = useState<{
+    state: ActionState | null;
+    keys: string[];
+  }>({ state: null, keys: [] });
+  const cleared = clearedBy.state === state ? clearedBy.keys : [];
+
+  const serverErrors: FieldErrors = Object.fromEntries(
+    Object.entries(state.fieldErrors ?? {}).filter(
+      ([key]) => fieldOrder.includes(key) && !cleared.includes(key),
+    ),
+  );
+  const serverHadFieldErrors = Object.keys(state.fieldErrors ?? {}).some(
+    (key) => fieldOrder.includes(key),
+  );
+  const errors: FieldErrors = { ...serverErrors, ...clientErrors };
+  const hasFieldErrors = Object.keys(errors).length > 0;
+  const summary = hasFieldErrors
+    ? "Проверьте выделенные поля."
+    : serverHadFieldErrors
+      ? null
+      : (state.error ?? null);
+
+  function focusFirst(found: FieldErrors) {
+    const first = fieldOrder.find((key) => found[key]);
+    if (!first) return;
+    (formRef.current?.elements.namedItem(first) as HTMLElement | null)?.focus();
+  }
+
+  // После ответа сервера с ошибками — фокус на первое проблемное поле.
+  useEffect(() => {
+    if (state.fieldErrors) focusFirst(state.fieldErrors);
+  }, [state]);
+
   const field = (key: keyof typeof values) => ({
     name: key,
     value: values[key],
+    "aria-invalid": errors[key] ? (true as const) : undefined,
+    "aria-describedby": errors[key] ? `error-${key}` : undefined,
     onChange: (
       e: React.ChangeEvent<
         HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
       >,
-    ) => setValues({ ...values, [key]: e.target.value }),
+    ) => {
+      setValues({ ...values, [key]: e.target.value });
+      if (clientErrors[key]) {
+        const next = { ...clientErrors };
+        delete next[key];
+        setClientErrors(next);
+      }
+      if (!cleared.includes(key)) setClearedBy({ state, keys: [...cleared, key] });
+    },
   });
+
+  const fieldError = (key: string) =>
+    errors[key] ? (
+      <p id={`error-${key}`} className="form-error field-error">
+        {errors[key]}
+      </p>
+    ) : null;
+
+  function clearCoverPreview() {
+    if (coverObjectUrlRef.current) {
+      URL.revokeObjectURL(coverObjectUrlRef.current);
+      coverObjectUrlRef.current = null;
+    }
+  }
+
+  function rejectCoverSelection(
+    input: HTMLInputElement,
+    message: string,
+  ) {
+    input.value = "";
+    clearCoverPreview();
+    setCoverPreviewUrl(event?.imageUrl ?? "");
+    setCoverFileName("");
+    setCoverError(message);
+    setCoverRemoved(false);
+  }
+
+  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      rejectCoverSelection(e.target, "Размер фото не должен превышать 4 МБ.");
+      return;
+    }
+    if (
+      file.type &&
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+    ) {
+      rejectCoverSelection(
+        e.target,
+        "Загрузите изображение в формате JPG, PNG или WebP.",
+      );
+      return;
+    }
+
+    clearCoverPreview();
+    const previewUrl = URL.createObjectURL(file);
+    coverObjectUrlRef.current = previewUrl;
+    setCoverPreviewUrl(previewUrl);
+    setCoverFileName(file.name);
+    setCoverError("");
+    setCoverRemoved(false);
+  }
+
+  function removeCover() {
+    clearCoverPreview();
+    if (coverInputRef.current) coverInputRef.current.value = "";
+    setCoverPreviewUrl("");
+    setCoverFileName("");
+    setCoverError("");
+    setCoverRemoved(true);
+  }
+
   return (
     <div className="workspace-columns event-editor">
       <form
+        ref={formRef}
         onReset={(event) => event.preventDefault()}
+        onSubmit={(e) => {
+          const found = validateClient(values);
+          if (Object.keys(found).length) {
+            e.preventDefault();
+            setClientErrors(found);
+            focusFirst(found);
+          } else {
+            setClientErrors({});
+          }
+        }}
         action={action}
         className="workspace-panel editor-form"
       >
         <input type="hidden" name="id" value={event?.id ?? ""} />
+        <input
+          type="hidden"
+          name="removeCover"
+          value={coverRemoved ? "true" : ""}
+        />
         <fieldset disabled={pending}>
           <div className="panel-heading">
             <h2>Информация о событии</h2>
@@ -60,6 +234,7 @@ export default function EventForm({
               maxLength={120}
               placeholder="Например, встреча AIU Design Club"
             />
+            {fieldError("title")}
           </label>
           <label>
             О чём это событие
@@ -71,6 +246,7 @@ export default function EventForm({
               rows={5}
               placeholder="Программа, для кого встреча и что взять с собой"
             />
+            {fieldError("description")}
           </label>
           <div className="form-grid">
             <label>
@@ -82,6 +258,7 @@ export default function EventForm({
                   </option>
                 ))}
               </select>
+              {fieldError("categoryId")}
             </label>
             <label>
               Количество мест
@@ -92,7 +269,52 @@ export default function EventForm({
                 max={100000}
                 required
               />
+              {fieldError("capacity")}
             </label>
+          </div>
+          <div className="event-cover-field">
+            <div>
+              <strong>Обложка афиши</strong>
+              <p>JPG, PNG или WebP, до 4 МБ.</p>
+            </div>
+            <div className="event-cover-actions">
+              <button
+                className="workspace-button secondary"
+                type="button"
+                onClick={() => coverInputRef.current?.click()}
+                disabled={pending}
+              >
+                {coverPreviewUrl ? "Заменить фото" : "Добавить фото"}
+              </button>
+              {coverPreviewUrl && (
+                <button
+                  className="workspace-button secondary"
+                  type="button"
+                  onClick={removeCover}
+                  disabled={pending}
+                >
+                  Убрать фото
+                </button>
+              )}
+              <input
+                ref={coverInputRef}
+                className="sr-only"
+                type="file"
+                name="coverFile"
+                accept="image/jpeg,image/png,image/webp"
+                aria-label="Фото обложки афиши"
+                onChange={handleCoverChange}
+                disabled={pending}
+              />
+            </div>
+            {coverFileName && (
+              <p className="event-cover-filename">{coverFileName}</p>
+            )}
+            {coverError && (
+              <p className="form-error field-error" role="alert">
+                {coverError}
+              </p>
+            )}
           </div>
           <div className="panel-heading form-section">
             <h2>Время и место</h2>
@@ -102,10 +324,12 @@ export default function EventForm({
             <label>
               Начало · время Астаны
               <input {...field("startsAt")} type="datetime-local" required />
+              {fieldError("startsAt")}
             </label>
             <label>
               Окончание · время Астаны
               <input {...field("endsAt")} type="datetime-local" required />
+              {fieldError("endsAt")}
             </label>
           </div>
           <label>
@@ -117,6 +341,7 @@ export default function EventForm({
               maxLength={120}
               placeholder="Корпус, аудитория или площадка"
             />
+            {fieldError("location")}
           </label>
           <div className="panel-heading form-section">
             <h2>Настройки записи</h2>
@@ -127,6 +352,7 @@ export default function EventForm({
               Когда открыть запись
               <input {...field("registrationOpensAt")} type="datetime-local" />
               <small>Необязательно. По умолчанию — после публикации.</small>
+              {fieldError("registrationOpensAt")}
             </label>
             <label>
               Приоритетное окно, часов
@@ -140,11 +366,12 @@ export default function EventForm({
                 Для студентов с 3 подтверждёнными посещениями. Требует даты
                 открытия записи.
               </small>
+              {fieldError("priorityWindowHours")}
             </label>
           </div>
-          {state.error && (
+          {summary && (
             <p className="form-error" role="alert">
-              {state.error}
+              {summary}
             </p>
           )}
           <div className="form-actions">
@@ -172,7 +399,11 @@ export default function EventForm({
         <section className="workspace-panel">
           <span className="section-kicker">ТАК СОБЫТИЕ УВИДЯТ СТУДЕНТЫ</span>
           <div className="editor-preview">
-            <EventPoster categoryId={values.categoryId} />
+            <EventPoster
+              categoryId={values.categoryId}
+              title={values.title}
+              imageUrl={coverPreviewUrl || undefined}
+            />
             <div>
               <span className="category-label">
                 {categories.find((c) => c.id === values.categoryId)?.name}
@@ -202,7 +433,9 @@ export default function EventForm({
             После редактирования опубликованное событие повторно проходит
             модерацию.
           </p>
-          <Link href="/organizer">← Мои события</Link>
+          <Link className="workspace-back" href="/organizer">
+            ← Мои события
+          </Link>
         </section>
       </aside>
     </div>
