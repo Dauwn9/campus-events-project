@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: Ctx) {
     const { id } = await params;
     const user = await getCurrentUser();
     const event = await getEventById(id);
-        const isPublic = event && ["PUBLISHED", "FINISHED", "CANCELLED"].includes(event.status);
+    const isPublic = event && ["PUBLISHED", "FINISHED", "CANCELLED"].includes(event.status); 
     const isOwnerOrAdmin =
       event && (user.role === "ADMIN" || event.organizerId === user.id);
     // скрытое событие отдаём как 404, чтобы не выдавать, что оно существует
