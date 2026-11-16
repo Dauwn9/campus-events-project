@@ -7,6 +7,7 @@ export type EventFilters = {
   from?: string;
   to?: string;
   search?: string;
+  organizerId?: string;
 };
 export async function getEvents(filters: EventFilters = {}) {
   const q = filters.search?.trim().toLowerCase();
@@ -16,6 +17,7 @@ export async function getEvents(filters: EventFilters = {}) {
         !e.archivedAt &&
         (!filters.status || e.status === filters.status) &&
         (!filters.categoryId || e.categoryId === filters.categoryId) &&
+        (!filters.organizerId || e.organizerId === filters.organizerId) &&
         (!filters.from || e.startsAt >= filters.from) &&
         (!filters.to || e.startsAt <= filters.to) &&
         (!q || `${e.title} ${e.description}`.toLowerCase().includes(q)),
