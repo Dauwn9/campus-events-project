@@ -18,7 +18,11 @@ import {
 import { ServiceError } from "./errors";
 import { profileInputSchema } from "@/lib/validators/profile";
 import { studentGroupSchema } from "@/lib/validators/student-group";
-import { eventInputSchema, type EventInput } from "@/lib/validators/event";
+import {
+  eventInputSchema,
+  type Event,
+  type EventInput,
+} from "@/lib/validators/event";
 import type { Role } from "@/lib/roles";
 
 export type Actor = { id: string; role: Role };
@@ -83,6 +87,40 @@ function recordAuditChanges(
     });
   }
   store.auditLog = store.auditLog.slice(-1000);
+}
+
+function notifyEventParticipants(
+  store: CampusStore,
+  event: Event,
+  kind: "EVENT_CANCELLED" | "EVENT_UPDATED",
+  message: string,
+) {
+  const recipientIds = new Set(
+    store.registrations
+      .filter(
+        (registration) =>
+          registration.eventId === event.id &&
+          (registration.status === "CONFIRMED" ||
+            registration.status === "WAITLIST"),
+      )
+      .map((registration) => registration.userId),
+  );
+  const createdAt = new Date().toISOString();
+  for (const userId of recipientIds) {
+    store.notifications.push({
+      id: randomUUID(),
+      userId,
+      eventId: event.id,
+      kind,
+      title:
+        kind === "EVENT_CANCELLED"
+          ? `Событие отменено: ${event.title}`
+          : `Событие изменилось: ${event.title}`,
+      message,
+      createdAt,
+      readAt: null,
+    });
+  }
 }
 
 export function assertRole(actor: Actor, roles: Role[], store = readStore()) {
@@ -243,6 +281,24 @@ export function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
         parsed.status === "DRAFT" ? ("DRAFT" as const) : ("PENDING" as const),
       rejectionReason: undefined,
     };
+    if (previous?.status === "PUBLISHED") {
+      const changedDetails = [
+        previous.title !== event.title ? "название" : null,
+        previous.startsAt !== event.startsAt ||
+        previous.endsAt !== event.endsAt
+          ? "дату и время"
+          : null,
+        previous.location !== event.location ? "место" : null,
+      ].filter((detail): detail is string => detail !== null);
+      if (changedDetails.length > 0) {
+        notifyEventParticipants(
+          store,
+          event,
+          "EVENT_UPDATED",
+          `Организатор изменил ${changedDetails.join(", ")}. Проверьте обновлённую информацию на странице события.`,
+        );
+      }
+    }
     const auditFields = [
       "title",
       "description",
@@ -351,6 +407,15 @@ export function changeEventStatus(
         (r) => r.eventId !== eventId,
       );
     } else {
+      if (event.status === "CANCELLED") {
+        throw new ServiceError("FORBIDDEN", "Событие уже отменено.");
+      }
+      notifyEventParticipants(
+        store,
+        event,
+        "EVENT_CANCELLED",
+        "Организатор отменил событие. Ваша регистрация сохранена в истории.",
+      );
       event.status = "CANCELLED";
       for (const r of store.registrations.filter(
         (r) => r.eventId === eventId && !r.checkedInAt,

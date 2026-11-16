@@ -7,8 +7,10 @@ export const MENU: Record<Role, { label: string; href: string }[]> = {
   ],
   STUDENT: [
     { label: "Афиша", href: "/" },
+    { label: "Друзья", href: "/friends" },
     { label: "Избранное", href: "/favorites" },
     { label: "Мои регистрации", href: "/my-registrations" },
+    { label: "Уведомления", href: "/notifications" },
   ],
   ORGANIZER: [
     { label: "Мои события", href: "/organizer" },

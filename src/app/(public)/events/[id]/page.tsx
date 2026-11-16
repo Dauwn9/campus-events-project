@@ -40,6 +40,14 @@ export default async function EventPage({
       <Link href="/" className="text-sm text-primary hover:underline">
         ← К афише
       </Link>
+      {user.role === "ORGANIZER" && user.id === event.organizerId && (
+        <Link
+          href={`/organizer/${event.id}/edit`}
+          className="workspace-button secondary"
+        >
+          Редактировать событие
+        </Link>
+      )}
       <article className="space-y-4">
         <div className="detail-cover"><EventPoster categoryId={event.categoryId} title={event.title} imageUrl={event.imageUrl} large /></div>
         <div className="flex flex-wrap items-center gap-3">

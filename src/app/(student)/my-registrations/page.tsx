@@ -88,6 +88,9 @@ export default async function MyRegistrationsPage({
                 <StudentEventCard key={r.id} event={r.event}>
                   <div className="registration-status">
                     <Status value={r.status} />
+                    {r.event.status === "CANCELLED" && (
+                      <Status value={r.event.status} />
+                    )}
                     {r.checkedInAt && (
                       <span className="attendance-yes">
                         Посещение подтверждено ·{" "}

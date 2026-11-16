@@ -30,6 +30,12 @@ import {
 import { getEventById, getEvents, listEvents } from "./events";
 import { getCategories } from "./categories";
 import { ServiceError } from "./errors";
+import {
+  getFriendsPageData,
+  respondToFriendRequest,
+  sendFriendRequest,
+} from "./social";
+import { getMyNotifications, markNotificationRead } from "./notifications";
 
 const file = join(process.cwd(), "work", `qa-state-${randomUUID()}.json`);
 process.env.CAMPUS_DATA_FILE = file;
@@ -175,6 +181,76 @@ test("Архивная категория не попадает в выбор к
     false,
   );
   assert.throws(() => saveCampusEvent(org, event, event.id), /категорию/);
+});
+test("Друзья: запрос нужно принять, друзья видят предстоящие события друг друга", () => {
+  const event = published(30, 2);
+  registerStudent(second, event.id);
+  const request = sendFriendRequest(student, second.id);
+  assert.equal(getFriendsPageData(student).outgoing.length, 1);
+  assert.equal(
+    getFriendsPageData(student).friendEvents.some(
+      (item) => item.event.id === event.id,
+    ),
+    false,
+  );
+  respondToFriendRequest(second, request.id, true);
+
+  const page = getFriendsPageData(student);
+  assert.equal(page.friends.some((friend) => friend.id === second.id), true);
+  assert.equal(
+    page.friendEvents.some(
+      (item) =>
+        item.event.id === event.id &&
+        item.friends.some((friend) => friend.id === second.id),
+    ),
+    true,
+  );
+  assert.throws(() => sendFriendRequest(student, student.id), /самого себя/);
+  assert.throws(() => sendFriendRequest(student, second.id), /уже существует/);
+  assert.throws(
+    () => respondToFriendRequest(student, request.id, true),
+    /не найден/,
+  );
+});
+test("Отмена события сохраняет регистрации и создаёт личные уведомления", () => {
+  const event = published(30, 2);
+  const firstRegistration = registerStudent(student, event.id);
+  const secondRegistration = registerStudent(second, event.id);
+
+  changeEventStatus(org, event.id, "cancel");
+
+  for (const registration of [firstRegistration, secondRegistration]) {
+    const saved = readStore().registrations.find(
+      (item) => item.id === registration.id,
+    );
+    assert.equal(saved?.status, "CANCELLED");
+    assert.equal(saved?.qrToken, null);
+  }
+  const notifications = getMyNotifications(student);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].kind, "EVENT_CANCELLED");
+  assert.equal(notifications[0].event?.status, "CANCELLED");
+  markNotificationRead(student, notifications[0].id);
+  assert.ok(getMyNotifications(student)[0].readAt);
+  assert.throws(
+    () => markNotificationRead(second, notifications[0].id),
+    /не найдено/,
+  );
+  assert.equal(getMyNotifications(second)[0].kind, "EVENT_CANCELLED");
+});
+test("Важные изменения опубликованного события уведомляют записанных студентов", () => {
+  const event = published(30, 2);
+  registerStudent(student, event.id);
+  saveCampusEvent(
+    org,
+    { ...event, location: "Новый зал, корпус B" },
+    event.id,
+  );
+
+  const notification = getMyNotifications(student)[0];
+  assert.equal(notification.kind, "EVENT_UPDATED");
+  assert.match(notification.message, /место/);
+  assert.equal(notification.event?.location, "Новый зал, корпус B");
 });
 test("Вместимость: параллельные запросы не превышают лимит, отмена продвигает очередь", async () => {
   const event = published();

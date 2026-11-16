@@ -46,6 +46,23 @@ export type CampusAuditEntry = {
   oldValue: string;
   newValue: string;
 };
+export type CampusFriendship = {
+  id: string;
+  requesterId: string;
+  recipientId: string;
+  status: "PENDING" | "ACCEPTED";
+  createdAt: string;
+};
+export type CampusNotification = {
+  id: string;
+  userId: string;
+  eventId: string;
+  kind: "EVENT_CANCELLED" | "EVENT_UPDATED";
+  title: string;
+  message: string;
+  createdAt: string;
+  readAt: string | null;
+};
 export type CampusStore = {
   version: 1;
   qrSecret: string;
@@ -57,6 +74,8 @@ export type CampusStore = {
   comments: Comment[];
   sessions: { hash: string; userId: string; expires: number }[];
   auditLog: CampusAuditEntry[];
+  friendships: CampusFriendship[];
+  notifications: CampusNotification[];
 };
 export function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -151,6 +170,23 @@ function seed(): CampusStore {
     comments: [],
     sessions: [],
     auditLog: [],
+    friendships: [
+      {
+        id: "friendship-demo-student-2",
+        requesterId: "student-demo",
+        recipientId: "student-2",
+        status: "ACCEPTED",
+        createdAt: "2026-10-01T10:00:00.000Z",
+      },
+      {
+        id: "friendship-student-3-demo",
+        requesterId: "student-3",
+        recipientId: "student-demo",
+        status: "PENDING",
+        createdAt: "2026-10-02T10:00:00.000Z",
+      },
+    ],
+    notifications: [],
   };
   store.events.find((e) => e.id === "evt-10")!.status = "PENDING";
   for (const event of store.events) {
@@ -210,6 +246,23 @@ const initial = globalThis as typeof globalThis & {
 };
 function consistentState(store: CampusStore) {
   store.auditLog ??= [];
+  store.friendships ??= [
+    {
+      id: "friendship-demo-student-2",
+      requesterId: "student-demo",
+      recipientId: "student-2",
+      status: "ACCEPTED",
+      createdAt: "2026-10-01T10:00:00.000Z",
+    },
+    {
+      id: "friendship-student-3-demo",
+      requesterId: "student-3",
+      recipientId: "student-demo",
+      status: "PENDING",
+      createdAt: "2026-10-02T10:00:00.000Z",
+    },
+  ];
+  store.notifications ??= [];
   for (const user of store.users) user.blockedUntil ??= null;
   for (const event of store.events) event.archivedAt ??= null;
   for (const category of store.categories) category.archivedAt ??= null;
