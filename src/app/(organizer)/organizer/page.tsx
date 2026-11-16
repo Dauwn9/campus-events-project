@@ -7,7 +7,7 @@ import EventTable from "@/components/workspace/EventTable";
 import Icon from "@/components/ui/Icon";
 export default async function OrganizerPage() {
   const user = await requireRole("ORGANIZER");
-  const events = (await getEvents()).filter((e) => e.organizerId === user.id);
+    const events = await getEvents({ organizerId: user.id });
   const ids = new Set(events.map((e) => e.id));
   const visits = readStore().registrations.filter(
     (r) => ids.has(r.eventId) && r.checkedInAt,
