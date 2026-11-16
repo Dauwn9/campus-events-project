@@ -27,7 +27,7 @@ import {
   updateStudentProfile,
   updateStudentGroup,
 } from "./campus";
-import { getEventById, getEvents } from "./events";
+import { getEventById, getEvents, listEvents } from "./events";
 import { getCategories } from "./categories";
 import { ServiceError } from "./errors";
 
@@ -472,4 +472,18 @@ test("Серверные проверки дат, вместимости и пр
     "CANCELLED",
   );
   assert.throws(() => registerStudent(second, event.id), /недоступно/);
+});
+test("Общий список API показывает только опубликованные события и делит на страницы", async () => {
+  const pending = makeEvent();
+  const live = published(20, 5);
+
+  const all = await listEvents({ page: 1, limit: 50 });
+  assert.equal(all.items.some((item) => item.id === pending.id), false);
+  assert.equal(all.items.some((item) => item.id === live.id), true);
+  assert.ok(all.items.every((item) => item.status === "PUBLISHED"));
+
+  const firstPage = await listEvents({ page: 1, limit: 1 });
+  assert.equal(firstPage.items.length, 1);
+  assert.equal(firstPage.total, all.total);
+  assert.equal(firstPage.limit, 1);
 });

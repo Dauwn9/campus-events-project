@@ -1,5 +1,6 @@
 import { readStore } from "./demo-store";
 import type { Event } from "@/lib/validators/event";
+import type { EventListQuery } from "@/lib/validators/event-query";
 export type EventFilters = {
   categoryId?: string;
   status?: Event["status"];
@@ -23,4 +24,21 @@ export async function getEvents(filters: EventFilters = {}) {
 }
 export async function getEventById(id: string) {
   return readStore().events.find((e) => e.id === id && !e.archivedAt) ?? null;
+}
+/** Публичный список: только PUBLISHED, с пагинацией на сервере. */
+export async function listEvents(query: EventListQuery) {
+  const all = await getEvents({
+    status: "PUBLISHED",
+    categoryId: query.categoryId,
+    from: query.from,
+    to: query.to,
+    search: query.q,
+  });
+  const start = (query.page - 1) * query.limit;
+  return {
+    items: all.slice(start, start + query.limit),
+    total: all.length,
+    page: query.page,
+    limit: query.limit,
+  };
 }
