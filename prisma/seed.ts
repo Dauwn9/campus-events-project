@@ -1,12 +1,11 @@
 import "dotenv/config";
-import { PrismaPg } from "@prisma/adapter-pg";
 import {
-  PrismaClient,
   Role,
   PriorityStatus,
   EventStatus,
   RegistrationStatus,
 } from "../src/generated/prisma/client";
+import { getPrisma } from "../src/lib/prisma";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -21,8 +20,8 @@ if (!isLocal && process.env.ALLOW_REMOTE_SEED !== "true") {
   );
 }
 
-const adapter = new PrismaPg({ connectionString });
-const prisma = new PrismaClient({ adapter });
+const prisma = getPrisma();
+const DEMO_PASSWORD = "Campus2026!";
 
 // --- помощники для дат ---
 const HOUR = 60 * 60 * 1000;
@@ -51,6 +50,8 @@ const attended = (
 });
 
 async function main() {
+  const { auth } = await import("../src/lib/better-auth");
+
   // --- очистка: сначала зависимые таблицы, потом основные ---
   await prisma.comment.deleteMany();
   await prisma.favorite.deleteMany();
@@ -59,6 +60,9 @@ async function main() {
   await prisma.registration.deleteMany();
   await prisma.event.deleteMany();
   await prisma.category.deleteMany();
+  await prisma.session.deleteMany();
+  await prisma.account.deleteMany();
+  await prisma.verification.deleteMany();
   await prisma.user.deleteMany();
 
   // --- категории ---
@@ -75,86 +79,90 @@ async function main() {
     ]);
 
   // --- пользователи ---
-  // Пароли здесь не задаются: войти под этими пользователями пока нельзя.
-  // На этапе 4 учётки нужно создавать через Better Auth (согласовать с Дашей).
-  const admin = await prisma.user.create({
-    data: {
-      name: "Admin",
-      email: "admin@campus.kz",
-      role: Role.ADMIN,
-      emailVerified: true,
-    },
-  });
+  const createSeedUser = async (input: {
+    name: string;
+    email: string;
+    role: Role;
+    priorityStatus?: PriorityStatus;
+    attendedCount?: number;
+    noShowCount?: number;
+    group?: string;
+    school?: string;
+  }) => {
+    const { user } = await auth.api.signUpEmail({
+      body: { name: input.name, email: input.email, password: DEMO_PASSWORD },
+    });
+    await prisma.session.deleteMany({ where: { userId: user.id } });
+    return prisma.user.update({
+      where: { id: user.id },
+      data: {
+        role: input.role,
+        emailVerified: true,
+        ...(input.priorityStatus ? { priorityStatus: input.priorityStatus } : {}),
+        ...(input.attendedCount !== undefined
+          ? { attendedCount: input.attendedCount }
+          : {}),
+        ...(input.noShowCount !== undefined
+          ? { noShowCount: input.noShowCount }
+          : {}),
+        ...(input.group ? { group: input.group } : {}),
+        ...(input.school ? { school: input.school } : {}),
+      },
+    });
+  };
 
-  const organizer1 = await prisma.user.create({
-    data: {
-      name: "Алдияр",
-      email: "organizer1@campus.kz",
-      role: Role.ORGANIZER,
-      emailVerified: true,
-    },
+  const admin = await createSeedUser({
+    name: "Admin",
+    email: "admin@campus.kz",
+    role: Role.ADMIN,
   });
-
-  const organizer2 = await prisma.user.create({
-    data: {
-      name: "Данияр",
-      email: "organizer2@campus.kz",
-      role: Role.ORGANIZER,
-      emailVerified: true,
-    },
+  const organizer1 = await createSeedUser({
+    name: "Алдияр",
+    email: "organizer1@campus.kz",
+    role: Role.ORGANIZER,
+    school: "AIU",
   });
-
-  // Айжан: уже «Активный» (3 посещения)
-  const student1 = await prisma.user.create({
-    data: {
-      name: "Айжан",
-      email: "student1@campus.kz",
-      role: Role.USER,
-      emailVerified: true,
-      priorityStatus: PriorityStatus.ACTIVE,
-      attendedCount: 3,
-    },
+  const organizer2 = await createSeedUser({
+    name: "Данияр",
+    email: "organizer2@campus.kz",
+    role: Role.ORGANIZER,
+    school: "AIU",
   });
-
-  // Ержан: 2 посещения, одно до статуса «Активный» (для демо этапа 6)
-  const student2 = await prisma.user.create({
-    data: {
-      name: "Ержан",
-      email: "student2@campus.kz",
-      role: Role.USER,
-      emailVerified: true,
-      attendedCount: 2,
-    },
+  const student1 = await createSeedUser({
+    name: "Айжан",
+    email: "student1@campus.kz",
+    role: Role.STUDENT,
+    priorityStatus: PriorityStatus.ACTIVE,
+    attendedCount: 3,
+    group: "IT-23-1",
+    school: "Высшая школа информационных технологий",
   });
-
-  // Мадина: 1 посещение и 1 неявка
-  const student3 = await prisma.user.create({
-    data: {
-      name: "Мадина",
-      email: "student3@campus.kz",
-      role: Role.USER,
-      emailVerified: true,
-      attendedCount: 1,
-      noShowCount: 1,
-    },
+  const student2 = await createSeedUser({
+    name: "Ержан",
+    email: "student2@campus.kz",
+    role: Role.STUDENT,
+    attendedCount: 2,
+    group: "IT-23-2",
+    school: "Высшая школа информационных технологий",
   });
-
-  const student4 = await prisma.user.create({
-    data: {
-      name: "Нуржан",
-      email: "student4@campus.kz",
-      role: Role.USER,
-      emailVerified: true,
-    },
+  const student3 = await createSeedUser({
+    name: "Мадина",
+    email: "student3@campus.kz",
+    role: Role.STUDENT,
+    attendedCount: 1,
+    noShowCount: 1,
+    group: "IT-24-1",
+    school: "Высшая школа информационных технологий",
   });
-
-  const student5 = await prisma.user.create({
-    data: {
-      name: "Даурен",
-      email: "student5@campus.kz",
-      role: Role.USER,
-      emailVerified: true,
-    },
+  const student4 = await createSeedUser({
+    name: "Нуржан",
+    email: "student4@campus.kz",
+    role: Role.STUDENT,
+  });
+  const student5 = await createSeedUser({
+    name: "Даурен",
+    email: "student5@campus.kz",
+    role: Role.STUDENT,
   });
 
   // --- прошедшие события (история посещений, «Прошло» в интерфейсе) ---

@@ -1,5 +1,4 @@
 import {
-  createHash,
   randomBytes,
   randomUUID,
   timingSafeEqual,
@@ -67,12 +66,12 @@ function auditValue(value: unknown, store: CampusStore, field: string) {
 
 function recordAuditChanges(
   store: CampusStore,
-  actor: Actor,
+  actor: Actor & { name?: string },
   entity: Pick<CampusAuditEntry, "entityType" | "entityId" | "entityLabel">,
   changes: { field: string; oldValue: unknown; newValue: unknown }[],
 ) {
   const actorName =
-    store.users.find((user) => user.id === actor.id)?.name ?? actor.id;
+    actor.name ?? store.users.find((user) => user.id === actor.id)?.name ?? actor.id;
   const occurredAt = new Date().toISOString();
   for (const change of changes) {
     store.auditLog.push({
@@ -87,6 +86,25 @@ function recordAuditChanges(
     });
   }
   store.auditLog = store.auditLog.slice(-1000);
+}
+
+export function recordCampusUserAudit(
+  actor: Actor & { name: string },
+  user: Pick<CampusUser, "id" | "name" | "email">,
+  changes: { field: string; oldValue: unknown; newValue: unknown }[],
+) {
+  changeStore((store) =>
+    recordAuditChanges(
+      store,
+      actor,
+      {
+        entityType: "USER",
+        entityId: user.id,
+        entityLabel: `${user.name} (${user.email})`,
+      },
+      changes,
+    ),
+  );
 }
 
 function notifyEventParticipants(
@@ -783,88 +801,5 @@ export function updateStudentGroup(actor: Actor, id: string, group: unknown) {
     }
     user.group = studentGroupSchema.parse(group);
     return { id: user.id, group: user.group };
-  });
-}
-export function createAccount(input: {
-  name: string;
-  email: string;
-  password: string;
-}) {
-  const parsed = z
-    .object({
-      name: z.string().trim().min(2).max(80),
-      email: z
-        .email()
-        .max(150)
-        .transform((v) => v.toLowerCase().trim()),
-      password: z.string().min(8).max(128),
-    })
-    .parse(input);
-  return changeStore((store) => {
-    if (store.users.some((u) => u.email === parsed.email))
-      throw new ServiceError(
-        "ALREADY_EXISTS",
-        "Этот email уже зарегистрирован.",
-      );
-    const user: CampusUser = {
-      id: `user-${randomUUID()}`,
-      name: parsed.name,
-      email: parsed.email,
-      passwordHash: hashPassword(parsed.password),
-      role: "STUDENT",
-      group: "",
-      school: "AIU",
-      blocked: false,
-    };
-    store.users.push(user);
-    return { id: user.id, role: user.role };
-  });
-}
-export function signIn(email: string, password: string) {
-  const user = readStore().users.find(
-    (u) => u.email === email.trim().toLowerCase(),
-  );
-  if (
-    !user ||
-    isCampusUserBlocked(user) ||
-    password.length > 128 ||
-    !verifyPassword(password, user.passwordHash)
-  )
-    throw new ServiceError(
-      "UNAUTHORIZED",
-      "Неверный email или пароль, либо аккаунт заблокирован.",
-    );
-  return startSession(user.id);
-}
-export function startSession(userId: string) {
-  const token = randomBytes(32).toString("hex");
-  changeStore((store) => {
-    store.sessions = store.sessions.filter((s) => s.expires > Date.now());
-    store.sessions.push({
-      hash: createHash("sha256").update(token).digest("hex"),
-      userId,
-      expires: Date.now() + 7 * 86400000,
-    });
-  });
-  return token;
-}
-export function sessionUser(token: string) {
-  const store = readStore();
-  const session = store.sessions.find(
-    (s) =>
-      s.hash === createHash("sha256").update(token).digest("hex") &&
-      s.expires > Date.now(),
-  );
-  return session
-    ? store.users.find(
-        (u) => u.id === session.userId && !isCampusUserBlocked(u),
-      )
-    : undefined;
-}
-export function revokeSession(token: string) {
-  changeStore((store) => {
-    store.sessions = store.sessions.filter(
-      (s) => s.hash !== createHash("sha256").update(token).digest("hex"),
-    );
   });
 }
