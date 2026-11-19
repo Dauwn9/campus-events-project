@@ -24,6 +24,7 @@ export const registrationSchema = z.object({
   qrToken: z.string().nullable(), 
   checkedInAt: z.string().datetime().nullable(),
   checkedInById: z.string().nullable(),
+  shortCode: z.string().nullable().optional(),
 });
 export type Registration = z.infer<typeof registrationSchema>;
 

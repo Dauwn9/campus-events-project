@@ -11,10 +11,76 @@ import type {
   MyRegistrationsFilter,
 } from "@/lib/validators/registration";
 import { ServiceError } from "./errors";
+import { getPrisma } from "@/lib/prisma";
+import { USE_MOCKS } from "./errors";
+
 export async function getMyRegistrations(
   filter: Partial<MyRegistrationsFilter> = {},
 ) {
   const user = await requireRole("STUDENT");
+  if (!USE_MOCKS) {
+    const registrations = await getPrisma().registration.findMany({
+      where: { userId: user.id },
+      include: { event: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const eventIds = [...new Set(registrations.map((registration) => registration.eventId))];
+    const registrationCounts = await getPrisma().registration.groupBy({
+      by: ["eventId"],
+      where: {
+        eventId: { in: eventIds },
+        status: "CONFIRMED",
+      },
+      _count: { _all: true },
+    });
+    const countsByEvent = new Map(
+      registrationCounts.map((item) => [item.eventId, item._count._all]),
+    );
+
+    return registrations
+      .map((registration) => ({
+        id: registration.id,
+        userId: registration.userId,
+        eventId: registration.eventId,
+        status: registration.status,
+        createdAt: registration.createdAt.toISOString(),
+        qrToken: registration.qrToken,
+        checkedInAt: registration.checkedInAt?.toISOString() ?? null,
+        checkedInById: registration.checkedInById,
+        shortCode: null,
+        event: {
+          id: registration.event.id,
+          title: registration.event.title,
+          description: registration.event.description,
+          location: registration.event.location,
+          startsAt: registration.event.startsAt.toISOString(),
+          endsAt: registration.event.endsAt.toISOString(),
+          registeredCount: countsByEvent.get(registration.eventId) ?? 0,
+          capacity: registration.event.capacity,
+          categoryId: registration.event.categoryId,
+          organizerId: registration.event.organizerId,
+          status:
+            registration.event.status === "PUBLISHED"
+              ? ("PUBLISHED" as const)
+              : registration.event.status === "PENDING"
+                ? ("PENDING" as const)
+                : ("REJECTED" as const),
+          imageUrl: registration.event.coverUrl ?? undefined,
+        },
+      }))
+      .filter(
+        (registration) =>
+          filter.when === undefined ||
+          filter.when === "all" ||
+          (filter.when === "past"
+            ? new Date(registration.event.endsAt) < new Date()
+            : new Date(registration.event.endsAt) >= new Date()),
+      )
+      .sort((a, b) =>
+        a.event.startsAt.localeCompare(b.event.startsAt),
+      );
+  }
+
   const store = readStore();
   return store.registrations
     .filter((r) => r.userId === user.id)

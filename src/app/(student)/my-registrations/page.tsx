@@ -120,7 +120,7 @@ export default async function MyRegistrationsPage({
                           <span className="section-kicker">
                             КОД ДЛЯ РУЧНОГО ВВОДА
                           </span>
-                          <strong>{r.shortCode}</strong>
+                          {r.shortCode && <strong>{r.shortCode}</strong>}
                           <p>
                             Покажите этот QR организатору на входе. Билет
                             действует один раз и только на это событие.
