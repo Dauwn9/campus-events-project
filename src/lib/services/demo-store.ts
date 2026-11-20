@@ -72,7 +72,6 @@ export type CampusStore = {
   registrations: CampusRegistration[];
   favorites: { userId: string; eventId: string; createdAt: string }[];
   comments: Comment[];
-  sessions: { hash: string; userId: string; expires: number }[];
   auditLog: CampusAuditEntry[];
   friendships: CampusFriendship[];
   notifications: CampusNotification[];
@@ -168,7 +167,6 @@ function seed(): CampusStore {
     registrations: [],
     favorites: [],
     comments: [],
-    sessions: [],
     auditLog: [],
     friendships: [
       {

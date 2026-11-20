@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
-import { apiError, requireUser } from "@/lib/api-response";
+import { apiError, requireApiRole } from "@/lib/api-response";
 import { changeEventStatus, saveCampusEvent } from "@/lib/services/campus";
 import { getEventById } from "@/lib/services/events";
 import { ServiceError } from "@/lib/services/errors";
@@ -26,7 +26,7 @@ export async function GET(_request: Request, { params }: Ctx) {
 export async function PATCH(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
-    const user = await requireUser();
+    const user = await requireApiRole("ORGANIZER");
     const body = await request.json();
     const current = await getEventById(id);
     if (!current) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
@@ -50,7 +50,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
 export async function DELETE(_request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
-    const user = await requireUser();
+    const user = await requireApiRole("ORGANIZER", "ADMIN");
     changeEventStatus(user, id, "delete");
     return new Response(null, { status: 204 });
   } catch (error) {

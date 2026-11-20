@@ -1,6 +1,6 @@
 import test, { beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, unlinkSync, readFileSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
@@ -20,16 +20,11 @@ import {
   isCampusUserBlocked,
   archiveAdminEvent,
   restoreAdminEvent,
-  createAccount,
-  signIn,
-  sessionUser,
-  revokeSession,
   updateStudentProfile,
   updateStudentGroup,
 } from "./campus";
 import { getEventById, getEvents, listEvents } from "./events";
 import { getCategories } from "./categories";
-import { ServiceError } from "./errors";
 import {
   getFriendsPageData,
   respondToFriendRequest,
@@ -358,25 +353,8 @@ test("20 случайных QR-билетов декодируются обра�
     20,
   );
 });
-test("Профиль, избранное, роли и блокировка: изменения сохраняются, пароли не хранятся открытым текстом", () => {
-  const account = createAccount({
-    name: "Тестовый студент",
-    email: "test@example.com",
-    password: "Different2026!",
-  });
-  const actor = { ...account, role: "STUDENT" as const };
-  assert.throws(
-    () =>
-      createAccount({
-        name: "Дубликат",
-        email: "test@example.com",
-        password: "Different2026!",
-      }),
-    /уже зарегистрирован/,
-  );
-  const token = signIn("test@example.com", "Different2026!");
-  assert.equal(sessionUser(token)?.id, actor.id);
-  assert.ok(!readFileSync(file, "utf8").includes("Different2026!"));
+test("Профиль, избранное, роли и блокировка сохраняются в демо-сервисе", () => {
+  const actor = second;
   updateStudentProfile(actor, {
     name: "Новое имя",
   });
@@ -418,31 +396,6 @@ test("Профиль, избранное, роли и блокировка: из
     passwordConfirmation: "Different2028!",
   });
   assert.equal(mismatchedPassword.success, false);
-  assert.throws(
-    () =>
-      updateStudentProfile(actor, {
-        name: "Новое имя",
-        currentPassword: "wrong",
-        password: "Different2027!",
-        passwordConfirmation: "Different2027!",
-      }),
-    (error) =>
-      error instanceof ServiceError && error.code === "UNAUTHORIZED",
-  );
-  updateStudentProfile(actor, {
-    name: "Новое имя",
-    currentPassword: "Different2026!",
-    password: "Different2027!",
-    passwordConfirmation: "Different2027!",
-  });
-  assert.throws(
-    () => signIn("test@example.com", "Different2026!"),
-    (error) =>
-      error instanceof ServiceError && error.code === "UNAUTHORIZED",
-  );
-  const updatedToken = signIn("test@example.com", "Different2027!");
-  assert.equal(sessionUser(updatedToken)?.id, actor.id);
-  revokeSession(updatedToken);
   assert.equal(updateStudentGroup(admin, actor.id, "IT-26").group, "IT-26");
   assert.throws(
     () => updateStudentGroup(admin, actor.id, "G".repeat(41)),
@@ -461,39 +414,24 @@ test("Профиль, избранное, роли и блокировка: из
   );
   const roleUpdate = updateCampusUser(admin, actor.id, "ORGANIZER", true);
   assert.equal(roleUpdate.roleChanged, true);
-  assert.equal(sessionUser(token), undefined);
   assert.throws(() => registerStudent(actor, event.id), /роли/);
-  assert.throws(
-    () => signIn("test@example.com", "Different2026!"),
-    /заблокирован/,
-  );
-  revokeSession(token);
-  assert.equal(readStore().sessions.length, 0);
 });
 test("Срок блокировки ограничивает доступ и автоматически снимается по истечении", () => {
-  const account = createAccount({
-    name: "Тест блокировки",
-    email: "ban-test@example.com",
-    password: "Different2026!",
-  });
-  const token = signIn("ban-test@example.com", "Different2026!");
-  updateCampusUser(admin, account.id, "STUDENT", true, "1d");
-  const blockedUser = readStore().users.find((user) => user.id === account.id)!;
+  updateCampusUser(admin, second.id, "STUDENT", true, "1d");
+  const blockedUser = readStore().users.find((user) => user.id === second.id)!;
   assert.equal(isCampusUserBlocked(blockedUser), true);
   assert.ok(Date.parse(blockedUser.blockedUntil!) > Date.now());
-  assert.equal(sessionUser(token), undefined);
 
   changeStore((store) => {
-    store.users.find((user) => user.id === account.id)!.blockedUntil =
+    store.users.find((user) => user.id === second.id)!.blockedUntil =
       new Date(Date.now() - 1000).toISOString();
   });
-  const expiredUser = readStore().users.find((user) => user.id === account.id)!;
+  const expiredUser = readStore().users.find((user) => user.id === second.id)!;
   assert.equal(isCampusUserBlocked(expiredUser), false);
-  assert.equal(sessionUser(token)?.id, account.id);
   assert.ok(
     readStore().auditLog.some(
       (entry) =>
-        entry.entityId === account.id && entry.field === "blockedUntil",
+        entry.entityId === second.id && entry.field === "blockedUntil",
     ),
   );
 });

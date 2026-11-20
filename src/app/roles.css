@@ -193,6 +193,40 @@ button:disabled {
 .auth-card label > input {
   margin-top: 7px;
 }
+.auth-card .auth-password-field {
+  position: relative;
+  display: grid;
+  width: 100%;
+  margin-top: 7px;
+}
+.auth-card .auth-password-field > input {
+  margin-top: 0;
+  padding-right: 48px;
+}
+.auth-card .auth-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #555f75;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.auth-password-toggle:hover {
+  color: #252e4b;
+}
+.auth-password-toggle:focus-visible {
+  outline: 2px solid #6969a1;
+  outline-offset: 1px;
+}
 .workspace input:disabled,
 .workspace select:disabled,
 .workspace textarea:disabled {
