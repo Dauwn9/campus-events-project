@@ -38,13 +38,15 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 ## Реальная база данных
 
-Для работы без моков задайте `DATABASE_URL` и установите `NEXT_PUBLIC_USE_MOCKS=false`. Перед запуском приложения примените миграции:
+Для работы без моков задайте `DATABASE_URL` и установите `NEXT_PUBLIC_USE_MOCKS=false`. Для Neon приложение использует пул соединений из `DATABASE_URL`; миграции должны использовать прямое соединение из `DATABASE_URL_UNPOOLED`. Prisma CLI выберет `DATABASE_URL_UNPOOLED`, если она задана, и иначе возьмёт `DATABASE_URL`.
+
+Перед запуском приложения примените миграции:
 
 ```bash
 npx prisma migrate deploy --config prisma7.config.ts
 ```
 
-Для Vercel добавьте эти переменные в Environment Variables проекта и запустите новый деплой. Не запускайте `prisma db seed` на базе с нужными данными: текущий seed очищает таблицы перед заполнением.
+Для Vercel задайте обе переменные в Environment Variables для нужных окружений и запустите новый деплой. Используйте connection strings соответствующей Neon-ветки; `DATABASE_URL` — pooled, `DATABASE_URL_UNPOOLED` — direct. Не запускайте `prisma db seed` на базе с нужными данными: текущий seed очищает таблицы перед заполнением.
 
 ### Обложки афиш
 

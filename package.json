@@ -10,6 +10,8 @@
     "test": "node --import tsx --test src/lib/services/campus.test.ts src/lib/audit-history.test.ts src/lib/event-cover.test.ts"
   },
   "dependencies": {
+    "@neon/config": "^1.14.5",
+    "@neon/env": "^2.1.8",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "dotenv": "^18.0.9",
