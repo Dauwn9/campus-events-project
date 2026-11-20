@@ -16,8 +16,7 @@ export async function toggleFavoriteAction(eventId: string): Promise<FavoriteRes
     if (e instanceof ServiceError) return { ok: false, message: e.message };
     return { ok: false, message: "Не удалось изменить избранное. Попробуйте ещё раз." };
   }
-  revalidatePath("/my/favorites");
-  revalidatePath("/events");
+  revalidatePath("/favorites");
   revalidatePath(`/events/${eventId}`);
   return { ok: true };
 }

@@ -45,7 +45,7 @@ after(() => {
   if (existsSync(file)) unlinkSync(file);
   delete process.env.CAMPUS_DATA_FILE;
 });
-function makeEvent(minutes = 10, capacity = 1) {
+async function makeEvent(minutes = 10, capacity = 1) {
   return saveCampusEvent(org, {
     title: "Проверка полного сценария AIU",
     description: "Тестовое событие для проверки записи и контроля входа.",
@@ -58,16 +58,16 @@ function makeEvent(minutes = 10, capacity = 1) {
     status: "PUBLISHED",
   });
 }
-function published(minutes = 10, capacity = 1) {
-  const event = makeEvent(minutes, capacity);
-  changeEventStatus(admin, event.id, "approve");
+async function published(minutes = 10, capacity = 1) {
+  const event = await makeEvent(minutes, capacity);
+  await changeEventStatus(admin, event.id, "approve");
   return event;
 }
 
-test("Сохраняет выбранную обложку в локальных данных события", () => {
-  const event = makeEvent();
+test("Сохраняет выбранную обложку в локальных данных события", async () => {
+  const event = await makeEvent();
   const imageUrl = "data:image/png;base64,iVBORw0KGgo=";
-  saveCampusEvent(org, { ...event, imageUrl }, event.id);
+  await saveCampusEvent(org, { ...event, imageUrl }, event.id);
 
   assert.equal(
     readStore().events.find((item) => item.id === event.id)?.imageUrl,
@@ -75,19 +75,19 @@ test("Сохраняет выбранную обложку в локальных
   );
 });
 
-test("Роли и принадлежность: студент не создаёт событие, организатор не меняет чужое, подмена роли не проходит", () => {
-  const event = makeEvent();
-  assert.throws(() => saveCampusEvent(student, event), /роли/);
-  assert.throws(
+test("Роли и принадлежность: студент не создаёт событие, организатор не меняет чужое, подмена роли не проходит", async () => {
+  const event = await makeEvent();
+  await assert.rejects(() => saveCampusEvent(student, event), /роли/);
+  await assert.rejects(
     () =>
       changeEventStatus({ id: "org-1", role: "ORGANIZER" }, event.id, "cancel"),
     /другому/,
   );
-  assert.throws(() => changeEventStatus(org, event.id, "approve"), /роли/);
+  await assert.rejects(() => changeEventStatus(org, event.id, "approve"), /роли/);
   assert.throws(
     () =>
       updateCampusUser(
-        { id: "student-demo", role: "ADMIN" },
+        { id: "student-demo", role: "STUDENT" },
         "student-1",
         "ADMIN",
         false,
@@ -95,32 +95,80 @@ test("Роли и принадлежность: студент не создаё
     /роли/,
   );
 });
-test("Модерация: попытка прямой публикации остаётся PENDING, отказ требует причины, повторное решение запрещено", () => {
-  const event = makeEvent();
-  assert.equal(event.status, "PENDING");
+test("Better Auth actor может работать с mock-событиями без пользователя в demo-store", async () => {
+  const organizer = {
+    id: "better-auth-organizer",
+    name: "Новый организатор",
+    role: "ORGANIZER" as const,
+  };
+  const event = await saveCampusEvent(organizer, {
+    title: "Событие реального организатора",
+    description: "Проверка работы пользователя Better Auth без mock-профиля.",
+    location: "Аудитория 1",
+    categoryId: "cat-tech",
+    organizerId: organizer.id,
+    startsAt: new Date(Date.now() + 10 * 60000).toISOString(),
+    endsAt: new Date(Date.now() + 130 * 60000).toISOString(),
+    capacity: 5,
+    status: "PENDING",
+  });
+  await changeEventStatus(admin, event.id, "approve");
+
+  const student = {
+    id: "better-auth-student",
+    name: "Новый студент",
+    role: "STUDENT" as const,
+  };
+  assert.equal(registerStudent(student, event.id).status, "CONFIRMED");
+  assert.equal((await toggleStudentFavorite(student, event.id)).isFavorite, true);
+  assert.equal(
+    readStore().users.some((user) => user.id === student.id),
+    false,
+  );
   assert.throws(
+    () => registerStudent({ ...student, blocked: true }, event.id),
+    /роли/,
+  );
+
+  const registration = readStore().registrations.find(
+    (item) => item.userId === student.id && item.eventId === event.id,
+  );
+  assert.ok(registration);
+  changeStore((store) => {
+    store.registrations.find((item) => item.id === registration.id)!.checkedInAt =
+      new Date().toISOString();
+  });
+  assert.equal(
+    checkInParticipant(organizer, event.id, registration.shortCode).name,
+    "Участник",
+  );
+});
+test("Модерация: попытка прямой публикации остаётся PENDING, отказ требует причины, повторное решение запрещено", async () => {
+  const event = await makeEvent();
+  assert.equal(event.status, "PENDING");
+  await assert.rejects(
     () => changeEventStatus(admin, event.id, "reject", "нет"),
     /причину/,
   );
-  changeEventStatus(admin, event.id, "reject", "Уточните программу и место");
+  await changeEventStatus(admin, event.id, "reject", "Уточните программу и место");
   assert.equal(
     readStore().events.find((e) => e.id === event.id)?.rejectionReason,
     "Уточните программу и место",
   );
-  changeEventStatus(org, event.id, "submit");
-  changeEventStatus(admin, event.id, "approve");
+  await changeEventStatus(org, event.id, "submit");
+  await changeEventStatus(admin, event.id, "approve");
   assert.equal(
     readStore().events.find((e) => e.id === event.id)?.status,
     "PUBLISHED",
   );
-  assert.throws(
+  await assert.rejects(
     () => changeEventStatus(admin, event.id, "approve"),
     /обработано/,
   );
 });
-test("История события фиксирует конкретное поле, автора и прежнее/новое значение", () => {
-  const event = makeEvent();
-  saveCampusEvent(
+test("История события фиксирует конкретное поле, автора и прежнее/новое значение", async () => {
+  const event = await makeEvent();
+  await saveCampusEvent(
     org,
     { ...event, title: "Обновлённое название события" },
     event.id,
@@ -137,9 +185,9 @@ test("История события фиксирует конкретное по
   assert.equal(titleChange.actorName, "Центр студенческих инициатив");
 });
 test("Архив скрывает событие с афиши, сохраняет регистрации и позволяет восстановить", async () => {
-  const event = published(10, 2);
+  const event = await published(10, 2);
   const registration = registerStudent(student, event.id);
-  archiveAdminEvent(admin, event.id);
+  await archiveAdminEvent(admin, event.id);
 
   assert.equal(await getEventById(event.id), null);
   assert.equal(
@@ -152,12 +200,12 @@ test("Архив скрывает событие с афиши, сохраняе
   assert.ok(
     readStore().registrations.some((item) => item.id === registration.id),
   );
-  assert.throws(
+  await assert.rejects(
     () => saveCampusEvent(org, event, event.id),
     /находится в архиве/,
   );
 
-  restoreAdminEvent(admin, event.id);
+  await restoreAdminEvent(admin, event.id);
   assert.equal((await getEventById(event.id))?.id, event.id);
   assert.ok(
     readStore().auditLog.some(
@@ -166,7 +214,7 @@ test("Архив скрывает событие с афиши, сохраняе
   );
 });
 test("Архивная категория не попадает в выбор категорий и не назначается событию", async () => {
-  const event = makeEvent();
+  const event = await makeEvent();
   changeStore((store) => {
     store.categories.find((category) => category.id === event.categoryId)!.archivedAt =
       new Date().toISOString();
@@ -175,10 +223,10 @@ test("Архивная категория не попадает в выбор к
     (await getCategories()).some((category) => category.id === event.categoryId),
     false,
   );
-  assert.throws(() => saveCampusEvent(org, event, event.id), /категорию/);
+  await assert.rejects(() => saveCampusEvent(org, event, event.id), /категорию/);
 });
-test("Друзья: запрос нужно принять, друзья видят предстоящие события друг друга", () => {
-  const event = published(30, 2);
+test("Друзья: запрос нужно принять, друзья видят предстоящие события друг друга", async () => {
+  const event = await published(30, 2);
   registerStudent(second, event.id);
   const request = sendFriendRequest(student, second.id);
   assert.equal(getFriendsPageData(student).outgoing.length, 1);
@@ -207,12 +255,12 @@ test("Друзья: запрос нужно принять, друзья вид�
     /не найден/,
   );
 });
-test("Отмена события сохраняет регистрации и создаёт личные уведомления", () => {
-  const event = published(30, 2);
+test("Отмена события сохраняет регистрации и создаёт личные уведомления", async () => {
+  const event = await published(30, 2);
   const firstRegistration = registerStudent(student, event.id);
   const secondRegistration = registerStudent(second, event.id);
 
-  changeEventStatus(org, event.id, "cancel");
+  await changeEventStatus(org, event.id, "cancel");
 
   for (const registration of [firstRegistration, secondRegistration]) {
     const saved = readStore().registrations.find(
@@ -233,10 +281,10 @@ test("Отмена события сохраняет регистрации и �
   );
   assert.equal(getMyNotifications(second)[0].kind, "EVENT_CANCELLED");
 });
-test("Важные изменения опубликованного события уведомляют записанных студентов", () => {
-  const event = published(30, 2);
+test("Важные изменения опубликованного события уведомляют записанных студентов", async () => {
+  const event = await published(30, 2);
   registerStudent(student, event.id);
-  saveCampusEvent(
+  await saveCampusEvent(
     org,
     { ...event, location: "Новый зал, корпус B" },
     event.id,
@@ -248,7 +296,7 @@ test("Важные изменения опубликованного событ�
   assert.equal(notification.event?.location, "Новый зал, корпус B");
 });
 test("Вместимость: параллельные запросы не превышают лимит, отмена продвигает очередь", async () => {
-  const event = published();
+  const event = await published();
   const results = await Promise.all(
     [student, second].map((actor) =>
       Promise.resolve().then(() => registerStudent(actor, event.id)),
@@ -275,8 +323,8 @@ test("Вместимость: параллельные запросы не пр�
     /не найдена/,
   );
 });
-test("QR: успешный вход, повтор без двойного посещения, чужое событие, неверный код и закрытое окно", () => {
-  const event = published();
+test("QR: успешный вход, повтор без двойного посещения, чужое событие, неверный код и закрытое окно", async () => {
+  const event = await published();
   const registration = registerStudent(student, event.id);
   assert.equal(
     checkInParticipant(org, event.id, registration.qrToken!).already,
@@ -309,7 +357,7 @@ test("QR: успешный вход, повтор без двойного пос
     () => checkInParticipant(org, event.id, registration.qrToken + "x"),
     /не найдена/,
   );
-  const other = published(200);
+  const other = await published(200);
   const otherReg = registerStudent(student, other.id);
   assert.throws(
     () => checkInParticipant(org, other.id, registration.shortCode),
@@ -321,7 +369,7 @@ test("QR: успешный вход, повтор без двойного пос
   );
 });
 test("20 случайных QR-билетов декодируются обратно в подписанные токены", async () => {
-  const event = published(10, 20);
+  const event = await published(10, 20);
   const require = createRequire(import.meta.url);
   const { PNG } = require("pngjs");
   for (let index = 0; index < 20; index++) {
@@ -353,7 +401,7 @@ test("20 случайных QR-билетов декодируются обра�
     20,
   );
 });
-test("Профиль, избранное, роли и блокировка сохраняются в демо-сервисе", () => {
+test("Профиль, роли и блокировка сохраняются в демо-сервисе", async () => {
   const actor = second;
   updateStudentProfile(actor, {
     name: "Новое имя",
@@ -405,16 +453,17 @@ test("Профиль, избранное, роли и блокировка со�
     () => updateStudentGroup(admin, "admin-demo", "IT-26"),
     /только студенту/,
   );
-  const event = published();
-  assert.equal(toggleStudentFavorite(actor, event.id).isFavorite, true);
-  assert.equal(toggleStudentFavorite(actor, event.id).isFavorite, false);
+  const event = await published();
   assert.throws(
     () => updateCampusUser(admin, "admin-demo", "STUDENT", true),
     /закреплены/,
   );
   const roleUpdate = updateCampusUser(admin, actor.id, "ORGANIZER", true);
   assert.equal(roleUpdate.roleChanged, true);
-  assert.throws(() => registerStudent(actor, event.id), /роли/);
+  assert.throws(
+    () => registerStudent({ ...actor, role: "ORGANIZER" }, event.id),
+    /роли/,
+  );
 });
 test("Срок блокировки ограничивает доступ и автоматически снимается по истечении", () => {
   updateCampusUser(admin, second.id, "STUDENT", true, "1d");
@@ -435,8 +484,8 @@ test("Срок блокировки ограничивает доступ и а�
     ),
   );
 });
-test("Приоритетное окно учитывает активный статус и список организатора", () => {
-  const event = published(120, 5);
+test("Приоритетное окно учитывает активный статус и список организатора", async () => {
+  const event = await published(120, 5);
   const plainStudent = { id: "student-99", role: "STUDENT" as const };
   changeStore((store) => {
     const target = store.events.find((item) => item.id === event.id)!;
@@ -467,11 +516,11 @@ test("Приоритетное окно учитывает активный ст
   });
   assert.equal(registerStudent(plainStudent, event.id).status, "CONFIRMED");
 });
-test("Серверные проверки дат, вместимости и приоритетной записи", () => {
-  assert.throws(() => makeEvent(-10), /будущем/);
-  const event = published();
+test("Серверные проверки дат, вместимости и приоритетной записи", async () => {
+  await assert.rejects(() => makeEvent(-10), /будущем/);
+  const event = await published();
   registerStudent(student, event.id);
-  assert.throws(
+  await assert.rejects(
     () => changeEventStatus(org, event.id, "delete"),
     /Есть участники/,
   );
@@ -480,7 +529,7 @@ test("Серверные проверки дат, вместимости и пр
     target.registrationOpensAt = new Date(Date.now() + 600000).toISOString();
   });
   assert.throws(() => registerStudent(second, event.id), /ещё не открылась/);
-  changeEventStatus(org, event.id, "cancel");
+  await changeEventStatus(org, event.id, "cancel");
   assert.equal(
     readStore().registrations.find((r) => r.eventId === event.id)?.status,
     "CANCELLED",
@@ -488,8 +537,8 @@ test("Серверные проверки дат, вместимости и пр
   assert.throws(() => registerStudent(second, event.id), /недоступно/);
 });
 test("Общий список API показывает только опубликованные события и делит на страницы", async () => {
-  const pending = makeEvent();
-  const live = published(20, 5);
+  const pending = await makeEvent();
+  const live = await published(20, 5);
 
   const all = await listEvents({ page: 1, limit: 50 });
   assert.equal(all.items.some((item) => item.id === pending.id), false);

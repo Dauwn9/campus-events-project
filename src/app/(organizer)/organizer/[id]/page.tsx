@@ -30,12 +30,13 @@ export default async function OrganizerEventPage({
   if (!event) notFound();
   const registrations = store.registrations.filter((r) => r.eventId === id);
   const participants = registrations.map((r) => {
-    const person = store.users.find((u) => u.id === r.userId)!;
+    const person = store.users.find((u) => u.id === r.userId);
+    // TODO: Resolve participant profiles from Better Auth users after registrations migrate.
     return {
       id: r.id,
-      name: person.name,
-      email: person.email,
-      group: person.group,
+      name: person?.name ?? "Участник",
+      email: person?.email ?? "",
+      group: person?.group ?? "",
       status: r.status,
       checkedInAt: r.checkedInAt,
       shortCode: r.shortCode,

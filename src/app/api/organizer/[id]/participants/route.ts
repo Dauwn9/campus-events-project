@@ -27,16 +27,11 @@ export async function GET(
         const user = store.users.find(
           (item) => item.id === registration.userId,
         );
-        if (!user) {
-          throw new ServiceError(
-            "INTERNAL",
-            "Не удалось загрузить участника события.",
-          );
-        }
+        // TODO: Resolve participant profiles from Better Auth users after registrations migrate.
         return [
-          user.name,
-          user.email,
-          user.group,
+          user?.name ?? "Участник",
+          user?.email ?? "",
+          user?.group ?? "",
           registration.status,
           registration.checkedInAt ?? "",
         ]

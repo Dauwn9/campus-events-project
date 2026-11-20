@@ -14,7 +14,11 @@ import {
   type CampusUser,
   type CampusAuditEntry,
 } from "./demo-store";
-import { ServiceError } from "./errors";
+import { ServiceError, USE_MOCKS } from "./errors";
+import { getPrisma } from "@/lib/prisma";
+import { EventStatus } from "@/generated/prisma/enums";
+import { eventInclude, toEventDto } from "./event-prisma";
+import { toggleFavoriteForActor } from "./favorites";
 import { profileInputSchema } from "@/lib/validators/profile";
 import { studentGroupSchema } from "@/lib/validators/student-group";
 import {
@@ -24,7 +28,13 @@ import {
 } from "@/lib/validators/event";
 import type { Role } from "@/lib/roles";
 
-export type Actor = { id: string; role: Role };
+export type Actor = {
+  id: string;
+  role: Role;
+  name?: string;
+  blocked?: boolean;
+  blockedUntil?: Date | string | null;
+};
 export function isCampusUserBlocked(
   user: Pick<CampusUser, "blocked" | "blockedUntil">,
   now = Date.now(),
@@ -141,16 +151,31 @@ function notifyEventParticipants(
   }
 }
 
-export function assertRole(actor: Actor, roles: Role[], store = readStore()) {
-  const user = store.users.find((item) => item.id === actor.id);
+export function assertRole(
+  actor: Actor,
+  roles: Role[],
+  store?: CampusStore,
+) {
+  // TODO: Remove the legacy store argument after mock-backed services are migrated.
+  void store;
+  const blockedUntil =
+    actor.blockedUntil instanceof Date
+      ? actor.blockedUntil.getTime()
+      : actor.blockedUntil
+        ? Date.parse(actor.blockedUntil)
+        : null;
+  const blocked =
+    actor.blocked === true &&
+    (blockedUntil === null ||
+      !Number.isFinite(blockedUntil) ||
+      blockedUntil > Date.now());
   if (
     !roles.includes(actor.role) ||
-    !user ||
-    isCampusUserBlocked(user) ||
-    user.role !== actor.role
+    !actor.id ||
+    blocked
   )
     throw new ServiceError("FORBIDDEN", "Это действие недоступно вашей роли.");
-  return user;
+  return actor;
 }
 export function ownedEvent(store: CampusStore, actor: Actor, eventId: string) {
   assertRole(actor, ["ORGANIZER", "ADMIN"], store);
@@ -168,6 +193,7 @@ export function getStudentPriorityStatus(
   store: CampusStore,
   userId: string,
 ): "STANDARD" | "ACTIVE" {
+  // TODO: Read a real student's priority status when registration data moves off the demo store.
   const user = store.users.find((item) => item.id === userId);
   if (!user) return "STANDARD";
   const visits = store.registrations.filter(
@@ -185,96 +211,164 @@ export function isPriorityEventMember(
   return Boolean(event?.priorityMembers?.includes(userId));
 }
 
-export function archiveAdminEvent(actor: Actor, eventId: string) {
-  return changeStore((store) => {
-    assertRole(actor, ["ADMIN"], store);
-    const event = store.events.find((item) => item.id === eventId);
-    if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
-    if (event.archivedAt)
+export async function archiveAdminEvent(actor: Actor, eventId: string) {
+  assertRole(actor, ["ADMIN"]);
+  const event = await getPrisma().$transaction(async (transaction) => {
+    const current = await transaction.event.findUnique({
+      where: { id: eventId },
+      include: eventInclude,
+    });
+    if (!current) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
+    if (current.archivedAt)
       throw new ServiceError("FORBIDDEN", "Событие уже находится в архиве.");
-    event.archivedAt = new Date().toISOString();
-    recordAuditChanges(
-      store,
-      actor,
-      {
-        entityType: "EVENT",
-        entityId: event.id,
-        entityLabel: `${event.title} (${event.id})`,
-      },
-      [{ field: "archivedAt", oldValue: null, newValue: event.archivedAt }],
+    return toEventDto(
+      await transaction.event.update({
+        where: { id: eventId },
+        data: { archivedAt: new Date() },
+        include: eventInclude,
+      }),
     );
-    return event;
   });
+
+  if (USE_MOCKS) {
+    changeStore((store) =>
+      recordAuditChanges(
+        store,
+        actor,
+        {
+          entityType: "EVENT",
+          entityId: event.id,
+          entityLabel: `${event.title} (${event.id})`,
+        },
+        [{ field: "archivedAt", oldValue: null, newValue: event.archivedAt }],
+      ),
+    );
+  }
+  return event;
 }
 
-export function restoreAdminEvent(actor: Actor, eventId: string) {
-  return changeStore((store) => {
-    assertRole(actor, ["ADMIN"], store);
-    const event = store.events.find((item) => item.id === eventId);
-    if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
-    if (!event.archivedAt)
+export async function restoreAdminEvent(actor: Actor, eventId: string) {
+  assertRole(actor, ["ADMIN"]);
+  const event = await getPrisma().$transaction(async (transaction) => {
+    const current = await transaction.event.findUnique({
+      where: { id: eventId },
+      include: eventInclude,
+    });
+    if (!current) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
+    if (!current.archivedAt)
       throw new ServiceError("FORBIDDEN", "Событие не находится в архиве.");
-    if (
-      store.categories.some(
-        (category) =>
-          category.id === event.categoryId && category.archivedAt,
-      )
-    )
+
+    const category = await transaction.category.findFirst({
+      where: { id: current.categoryId, archivedAt: null },
+      select: { id: true },
+    });
+    if (!category) {
       throw new ServiceError(
         "FORBIDDEN",
         "Сначала восстановите категорию события.",
       );
-    const archivedAt = event.archivedAt;
-    event.archivedAt = null;
-    recordAuditChanges(
-      store,
-      actor,
-      {
-        entityType: "EVENT",
-        entityId: event.id,
-        entityLabel: `${event.title} (${event.id})`,
-      },
-      [{ field: "archivedAt", oldValue: archivedAt, newValue: null }],
+    }
+
+    return toEventDto(
+      await transaction.event.update({
+        where: { id: eventId },
+        data: { archivedAt: null },
+        include: eventInclude,
+      }),
     );
-    return event;
   });
+
+  if (USE_MOCKS) {
+    changeStore((store) =>
+      recordAuditChanges(
+        store,
+        actor,
+        {
+          entityType: "EVENT",
+          entityId: event.id,
+          entityLabel: `${event.title} (${event.id})`,
+        },
+        [{ field: "archivedAt", oldValue: "В архиве", newValue: null }],
+      ),
+    );
+  }
+  return event;
 }
 
-export function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
+export async function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
   const parsed = eventInputSchema.parse(input);
-  return changeStore((store) => {
-    assertRole(actor, ["ORGANIZER"], store);
-    if (
-      !store.categories.some(
-        (category) =>
-          category.id === parsed.categoryId && !category.archivedAt,
-      )
-    )
+  assertRole(actor, id ? ["ORGANIZER", "ADMIN"] : ["ORGANIZER"]);
+
+  const result = await getPrisma().$transaction(async (transaction) => {
+    const category = await transaction.category.findFirst({
+      where: { id: parsed.categoryId, archivedAt: null },
+      select: { id: true },
+    });
+    if (!category) {
       throw new ServiceError("NOT_FOUND", "Выберите существующую категорию.");
-    const previous = id ? ownedEvent(store, actor, id) : undefined;
-    if (previous?.archivedAt)
-      throw new ServiceError(
-        "FORBIDDEN",
-        "Событие находится в архиве. Сначала восстановите его.",
-      );
+    }
     if (new Date(parsed.startsAt) <= new Date())
       throw new ServiceError(
         "EVENT_PAST",
         "Дата начала должна быть в будущем.",
       );
-    if (previous && parsed.capacity < previous.registeredCount)
-      throw new ServiceError(
-        "EVENT_FULL",
-        "Вместимость не может быть меньше числа записавшихся.",
-      );
+
+    const previousRecord = id
+      ? await transaction.event.findUnique({
+          where: { id },
+          include: eventInclude,
+        })
+      : null;
+    if (id && !previousRecord)
+      throw new ServiceError("NOT_FOUND", "Событие не найдено.");
     if (
-      previous &&
-      store.registrations.some((r) => r.eventId === id && r.checkedInAt)
+      previousRecord &&
+      actor.role !== "ADMIN" &&
+      previousRecord.organizerId !== actor.id
     )
       throw new ServiceError(
         "FORBIDDEN",
-        "Нельзя изменять событие после начала отметки входа.",
+        "Это событие принадлежит другому организатору.",
       );
+    if (previousRecord?.archivedAt)
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Событие находится в архиве. Сначала восстановите его.",
+      );
+
+    const previous = previousRecord ? toEventDto(previousRecord) : undefined;
+    if (previousRecord) {
+      const mockRegistrations = USE_MOCKS
+        ? readStore().registrations.filter(
+            (registration) =>
+              registration.eventId === id &&
+              registration.status === "CONFIRMED",
+          )
+        : [];
+      if (
+        parsed.capacity <
+        previousRecord._count.registrations + mockRegistrations.length
+      )
+        throw new ServiceError(
+          "EVENT_FULL",
+          "Вместимость не может быть меньше числа записавшихся.",
+        );
+
+      const checkedInCount = await transaction.registration.count({
+        where: { eventId: id, checkedInAt: { not: null } },
+      });
+      const hasMockCheckIns =
+        USE_MOCKS &&
+        readStore().registrations.some(
+          (registration) => registration.eventId === id && registration.checkedInAt,
+        );
+      if (checkedInCount > 0 || hasMockCheckIns)
+        throw new ServiceError(
+          "FORBIDDEN",
+          "Нельзя изменять событие после начала отметки входа.",
+        );
+    }
+
     if (
       parsed.registrationOpensAt &&
       new Date(parsed.registrationOpensAt) > new Date(parsed.startsAt)
@@ -288,35 +382,50 @@ export function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
         "FORBIDDEN",
         "Для приоритетного окна задайте дату открытия записи.",
       );
-    const event = {
-      ...parsed,
-      id: previous?.id ?? `evt-${randomUUID()}`,
-      archivedAt: previous?.archivedAt ?? null,
-      organizerId: actor.id,
-      registeredCount: previous?.registeredCount ?? 0,
-      priorityMembers: previous?.priorityMembers ?? [],
+
+    const eventData = {
+      title: parsed.title,
+      description: parsed.description,
+      location: parsed.location,
+      coverUrl: parsed.imageUrl ?? null,
+      startsAt: new Date(parsed.startsAt),
+      endsAt: new Date(parsed.endsAt),
+      capacity: parsed.capacity,
       status:
-        parsed.status === "DRAFT" ? ("DRAFT" as const) : ("PENDING" as const),
-      rejectionReason: undefined,
+        parsed.status === "DRAFT" ? EventStatus.DRAFT : EventStatus.PENDING,
+      rejectionReason: null,
+      registrationOpensAt: parsed.registrationOpensAt
+        ? new Date(parsed.registrationOpensAt)
+        : null,
+      priorityWindowHours: parsed.priorityWindowHours ?? 0,
+      organizerId: previousRecord?.organizerId ?? actor.id,
+      categoryId: parsed.categoryId,
     };
-    if (previous?.status === "PUBLISHED") {
-      const changedDetails = [
-        previous.title !== event.title ? "название" : null,
-        previous.startsAt !== event.startsAt ||
-        previous.endsAt !== event.endsAt
-          ? "дату и время"
-          : null,
-        previous.location !== event.location ? "место" : null,
-      ].filter((detail): detail is string => detail !== null);
-      if (changedDetails.length > 0) {
-        notifyEventParticipants(
-          store,
-          event,
-          "EVENT_UPDATED",
-          `Организатор изменил ${changedDetails.join(", ")}. Проверьте обновлённую информацию на странице события.`,
-        );
-      }
-    }
+    const savedRecord = previousRecord
+      ? await transaction.event.update({
+          where: { id: previousRecord.id },
+          data: eventData,
+          include: eventInclude,
+        })
+      : await transaction.event.create({
+          data: { id: `evt-${randomUUID()}`, ...eventData },
+          include: eventInclude,
+        });
+
+    return { previous, event: toEventDto(savedRecord) };
+  });
+
+  if (USE_MOCKS) {
+    const changedDetails = result.previous?.status === "PUBLISHED"
+      ? [
+          result.previous.title !== result.event.title ? "название" : null,
+          result.previous.startsAt !== result.event.startsAt ||
+          result.previous.endsAt !== result.event.endsAt
+            ? "дату и время"
+            : null,
+          result.previous.location !== result.event.location ? "место" : null,
+        ].filter((detail): detail is string => detail !== null)
+      : [];
     const auditFields = [
       "title",
       "description",
@@ -330,152 +439,214 @@ export function saveCampusEvent(actor: Actor, input: EventInput, id?: string) {
       "status",
       "rejectionReason",
     ] as const;
-    recordAuditChanges(
-      store,
-      actor,
-      {
-        entityType: "EVENT",
-        entityId: event.id,
-        entityLabel: `${event.title} (${event.id})`,
-      },
-      auditFields.flatMap((field) => {
-        const oldValue = previous?.[field];
-        const newValue = event[field];
-        return previous && oldValue === newValue
-          ? []
-          : [{ field, oldValue, newValue }];
-      }),
-    );
-    store.events = [...store.events.filter((e) => e.id !== event.id), event];
-    return event;
-  });
-}
-export function changeEventStatus(
-  actor: Actor,
-  eventId: string,
-  action: "submit" | "approve" | "reject" | "cancel" | "delete",
-  reason = "",
-) {
-  return changeStore((store) => {
-    const event = ownedEvent(store, actor, eventId);
-    if (event.archivedAt)
-      throw new ServiceError(
-        "FORBIDDEN",
-        "Событие находится в архиве. Сначала восстановите его.",
-      );
-    const previousStatus = event.status;
-    const previousReason = event.rejectionReason;
-    if (action === "approve" || action === "reject") {
-      assertRole(actor, ["ADMIN"], store);
-      if (event.status !== "PENDING")
-        throw new ServiceError(
-          "FORBIDDEN",
-          "Событие уже обработано или не отправлено на модерацию.",
+
+    changeStore((store) => {
+      if (changedDetails.length > 0) {
+        notifyEventParticipants(
+          store,
+          result.event,
+          "EVENT_UPDATED",
+          `Организатор изменил ${changedDetails.join(", ")}. Проверьте обновлённую информацию на странице события.`,
         );
-      if (action === "reject" && reason.trim().length < 5)
-        throw new ServiceError(
-          "FORBIDDEN",
-          "Укажите причину отказа: минимум 5 символов.",
-        );
-      if (action === "approve" && new Date(event.startsAt) <= new Date())
-        throw new ServiceError(
-          "EVENT_PAST",
-          "Нельзя опубликовать прошедшее событие.",
-        );
-      event.status = action === "approve" ? "PUBLISHED" : "REJECTED";
-      event.rejectionReason =
-        action === "reject" ? reason.trim().slice(0, 1000) : undefined;
-    } else if (action === "submit") {
-      if (!["DRAFT", "REJECTED"].includes(event.status))
-        throw new ServiceError(
-          "FORBIDDEN",
-          "Событие уже отправлено или опубликовано.",
-        );
-      if (new Date(event.startsAt) <= new Date())
-        throw new ServiceError(
-          "EVENT_PAST",
-          "Обновите дату события перед отправкой.",
-        );
-      event.status = "PENDING";
-      event.rejectionReason = undefined;
-    } else if (action === "delete") {
-      if (
-        store.registrations.some(
-          (r) => r.eventId === eventId && r.status !== "CANCELLED",
-        )
-      )
-        throw new ServiceError(
-          "FORBIDDEN",
-          "Есть участники. Отмените событие, чтобы сохранить их историю.",
-        );
+      }
       recordAuditChanges(
         store,
         actor,
         {
           entityType: "EVENT",
-          entityId: event.id,
-          entityLabel: `${event.title} (${event.id})`,
+          entityId: result.event.id,
+          entityLabel: `${result.event.title} (${result.event.id})`,
         },
-        [{ field: "deleted", oldValue: event.title, newValue: "Удалено" }],
+        auditFields.flatMap((field) => {
+          const oldValue = result.previous?.[field];
+          const newValue = result.event[field];
+          return result.previous && oldValue === newValue
+            ? []
+            : [{ field, oldValue, newValue }];
+        }),
       );
-      store.events = store.events.filter((e) => e.id !== eventId);
-      store.favorites = store.favorites.filter((f) => f.eventId !== eventId);
-      store.comments = store.comments.filter((c) => c.eventId !== eventId);
-      store.registrations = store.registrations.filter(
-        (r) => r.eventId !== eventId,
+    });
+  }
+
+  return result.event;
+}
+export async function changeEventStatus(
+  actor: Actor,
+  eventId: string,
+  action: "submit" | "approve" | "reject" | "cancel" | "delete",
+  reason = "",
+) {
+  assertRole(
+    actor,
+    action === "approve" || action === "reject"
+      ? ["ADMIN"]
+      : ["ORGANIZER", "ADMIN"],
+  );
+
+  const result = await getPrisma().$transaction(async (transaction) => {
+    const record = await transaction.event.findUnique({
+      where: { id: eventId },
+      include: eventInclude,
+    });
+    if (!record) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
+    if (actor.role !== "ADMIN" && record.organizerId !== actor.id)
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Это событие принадлежит другому организатору.",
       );
-    } else {
-      if (event.status === "CANCELLED") {
-        throw new ServiceError("FORBIDDEN", "Событие уже отменено.");
-      }
-      notifyEventParticipants(
-        store,
-        event,
-        "EVENT_CANCELLED",
-        "Организатор отменил событие. Ваша регистрация сохранена в истории.",
+    if (record.archivedAt)
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Событие находится в архиве. Сначала восстановите его.",
       );
-      event.status = "CANCELLED";
-      for (const r of store.registrations.filter(
-        (r) => r.eventId === eventId && !r.checkedInAt,
-      )) {
-        r.status = "CANCELLED";
-        r.qrToken = null;
-      }
-      event.registeredCount = store.registrations.filter(
-        (r) => r.eventId === eventId && r.status === "CONFIRMED",
-      ).length;
+
+    const previous = toEventDto(record);
+    if (action === "approve" || action === "reject") {
+      if (record.status !== "PENDING")
+        throw new ServiceError(
+          "MODERATION_CLOSED",
+          "Событие уже обработано или не отправлено на модерацию.",
+        );
+      if (action === "reject" && (reason.trim().length < 5 || reason.length > 1000))
+        throw new ServiceError(
+          "FORBIDDEN",
+          "Укажите причину отказа длиной от 5 до 1000 символов.",
+        );
+      if (action === "approve" && record.startsAt <= new Date())
+        throw new ServiceError(
+          "EVENT_PAST",
+          "Нельзя опубликовать прошедшее событие.",
+        );
+      const updated = await transaction.event.update({
+        where: { id: eventId },
+        data:
+          action === "approve"
+            ? { status: EventStatus.PUBLISHED, rejectionReason: null }
+            : {
+                status: EventStatus.REJECTED,
+                rejectionReason: reason.trim().slice(0, 1000),
+              },
+        include: eventInclude,
+      });
+      return { previous, event: toEventDto(updated), deleted: false };
     }
-    recordAuditChanges(
-      store,
-      actor,
-      {
-        entityType: "EVENT",
-        entityId: event.id,
-        entityLabel: `${event.title} (${event.id})`,
-      },
-      [
-        ...(previousStatus !== event.status
-          ? [
-              {
-                field: "status",
-                oldValue: previousStatus,
-                newValue: event.status,
-              },
-            ]
-          : []),
-        ...(previousReason !== event.rejectionReason
-          ? [
-              {
-                field: "rejectionReason",
-                oldValue: previousReason,
-                newValue: event.rejectionReason,
-              },
-            ]
-          : []),
-      ],
-    );
-    return event;
+
+    if (action === "submit") {
+      if (record.status !== "DRAFT" && record.status !== "REJECTED")
+        throw new ServiceError(
+          "FORBIDDEN",
+          "Событие уже отправлено или опубликовано.",
+        );
+      if (record.startsAt <= new Date())
+        throw new ServiceError(
+          "EVENT_PAST",
+          "Обновите дату события перед отправкой.",
+        );
+      const updated = await transaction.event.update({
+        where: { id: eventId },
+        data: { status: EventStatus.PENDING, rejectionReason: null },
+        include: eventInclude,
+      });
+      return { previous, event: toEventDto(updated), deleted: false };
+    }
+
+    if (action === "delete") {
+      const databaseRegistrations = await transaction.registration.count({
+        where: { eventId, status: { not: "CANCELLED" } },
+      });
+      const mockRegistrations = USE_MOCKS
+        ? readStore().registrations.some(
+            (registration) =>
+              registration.eventId === eventId &&
+              registration.status !== "CANCELLED",
+          )
+        : false;
+      if (databaseRegistrations > 0 || mockRegistrations)
+        throw new ServiceError(
+          "FORBIDDEN",
+          "Есть участники. Отмените событие, чтобы сохранить их историю.",
+        );
+      await transaction.event.delete({ where: { id: eventId } });
+      return { previous, event: null, deleted: true };
+    }
+
+    if (record.status === "CANCELLED") {
+      throw new ServiceError("FORBIDDEN", "Событие уже отменено.");
+    }
+    const updated = await transaction.event.update({
+      where: { id: eventId },
+      data: { status: EventStatus.CANCELLED },
+      include: eventInclude,
+    });
+    return { previous, event: toEventDto(updated), deleted: false };
   });
+
+  if (USE_MOCKS) {
+    changeStore((store) => {
+      if (result.deleted) {
+        store.events = store.events.filter((event) => event.id !== eventId);
+        store.comments = store.comments.filter(
+          (comment) => comment.eventId !== eventId,
+        );
+        store.registrations = store.registrations.filter(
+          (registration) => registration.eventId !== eventId,
+        );
+      } else if (action === "cancel" && result.event) {
+        notifyEventParticipants(
+          store,
+          result.event,
+          "EVENT_CANCELLED",
+          "Организатор отменил событие. Ваша регистрация сохранена в истории.",
+        );
+        const mockEvent = store.events.find((event) => event.id === eventId);
+        if (mockEvent) mockEvent.status = "CANCELLED";
+        for (const registration of store.registrations.filter(
+          (item) => item.eventId === eventId && !item.checkedInAt,
+        )) {
+          registration.status = "CANCELLED";
+          registration.qrToken = null;
+        }
+        if (mockEvent) {
+          mockEvent.registeredCount = store.registrations.filter(
+            (registration) =>
+              registration.eventId === eventId &&
+              registration.status === "CONFIRMED",
+          ).length;
+        }
+      }
+
+      const changes = result.deleted
+        ? [{ field: "deleted", oldValue: result.previous.title, newValue: "Удалено" }]
+        : [
+            ...(result.previous.status !== result.event?.status
+              ? [{
+                  field: "status",
+                  oldValue: result.previous.status,
+                  newValue: result.event?.status,
+                }]
+              : []),
+            ...(result.previous.rejectionReason !== result.event?.rejectionReason
+              ? [{
+                  field: "rejectionReason",
+                  oldValue: result.previous.rejectionReason,
+                  newValue: result.event?.rejectionReason,
+                }]
+              : []),
+          ];
+      recordAuditChanges(
+        store,
+        actor,
+        {
+          entityType: "EVENT",
+          entityId: result.previous.id,
+          entityLabel: `${result.previous.title} (${result.previous.id})`,
+        },
+        changes,
+      );
+    });
+  }
+
+  return result.event ?? result.previous;
 }
 export function registerStudent(actor: Actor, eventId: string) {
   return changeStore((store) => {
@@ -616,9 +787,11 @@ export function checkInParticipant(
       throw new ServiceError("NOT_FOUND", "Запись не найдена.");
     if (registration.eventId !== eventId || registration.status !== "CONFIRMED")
       throw new ServiceError("NOT_FOUND", "Запись не найдена на это событие.");
-    const participant = store.users.find((u) => u.id === registration.userId)!;
-    if (isCampusUserBlocked(participant))
+    const participant = store.users.find((u) => u.id === registration.userId);
+    if (participant && isCampusUserBlocked(participant))
       throw new ServiceError("FORBIDDEN", "Участник заблокирован.");
+    // TODO: Resolve real participant names from Prisma after registrations migrate.
+    const participantName = participant?.name ?? "Участник";
     if (registration.qrToken === code) {
       const expected = Buffer.from(qrToken(store, registration.id));
       const actual = Buffer.from(code);
@@ -631,7 +804,7 @@ export function checkInParticipant(
     if (registration.checkedInAt)
       return {
         already: true,
-        name: participant.name,
+        name: participantName,
         at: registration.checkedInAt,
       };
     const now = Date.now();
@@ -646,37 +819,13 @@ export function checkInParticipant(
     registration.checkedInById = actor.id;
     return {
       already: false,
-      name: participant.name,
+      name: participantName,
       at: registration.checkedInAt,
     };
   });
 }
-export function toggleStudentFavorite(actor: Actor, eventId: string) {
-  return changeStore((store) => {
-    assertRole(actor, ["STUDENT"], store);
-    if (
-      !store.events.some(
-        (e) =>
-          e.id === eventId &&
-          !e.archivedAt &&
-          ["PUBLISHED", "FINISHED"].includes(e.status),
-      )
-    )
-      throw new ServiceError("NOT_FOUND", "Событие недоступно.");
-    const present = store.favorites.some(
-      (f) => f.userId === actor.id && f.eventId === eventId,
-    );
-    store.favorites = store.favorites.filter(
-      (f) => f.userId !== actor.id || f.eventId !== eventId,
-    );
-    if (!present)
-      store.favorites.push({
-        userId: actor.id,
-        eventId,
-        createdAt: new Date().toISOString(),
-      });
-    return { eventId, isFavorite: !present };
-  });
+export async function toggleStudentFavorite(actor: Actor, eventId: string) {
+  return toggleFavoriteForActor(actor, eventId);
 }
 export function updateCampusUser(
   actor: Actor,
@@ -771,7 +920,8 @@ export function updateStudentProfile(
   },
 ) {
   return changeStore((store) => {
-    const user = assertRole(actor, ["STUDENT"], store);
+    assertRole(actor, ["STUDENT"], store);
+    const user = store.users.find((item) => item.id === actor.id);
     const parsed = profileInputSchema.parse({
       name: input.name,
       currentPassword: input.currentPassword ?? "",
@@ -779,13 +929,17 @@ export function updateStudentProfile(
       passwordConfirmation: input.passwordConfirmation ?? "",
     });
     if (parsed.password) {
-      if (!verifyPassword(parsed.currentPassword ?? "", user.passwordHash))
+      if (
+        !user ||
+        !verifyPassword(parsed.currentPassword ?? "", user.passwordHash)
+      )
         throw new ServiceError("UNAUTHORIZED", "Текущий пароль неверен.");
       user.passwordHash = hashPassword(parsed.password);
     }
-    user.name = parsed.name;
-    for (const comment of store.comments.filter((c) => c.userId === user.id))
-      comment.userName = user.name;
+    // TODO: Profile persistence for Better Auth users belongs in the Prisma profile service.
+    if (user) user.name = parsed.name;
+    for (const comment of store.comments.filter((c) => c.userId === actor.id))
+      comment.userName = parsed.name;
   });
 }
 export function updateStudentGroup(actor: Actor, id: string, group: unknown) {

@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const user = await requireApiRole("ORGANIZER");
     const body = await request.json();
     // organizerId и статус клиенту не доверяем: ставим сами
-    const event = saveCampusEvent(user, {
+    const event = await saveCampusEvent(user, {
       ...body,
       organizerId: user.id,
       status: body?.status === "DRAFT" ? "DRAFT" : "PENDING",

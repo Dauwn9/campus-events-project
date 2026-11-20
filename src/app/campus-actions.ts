@@ -16,12 +16,12 @@ import {
   changeEventStatus,
   registerStudent,
   cancelStudentRegistration,
-  toggleStudentFavorite,
   checkInParticipant,
   archiveAdminEvent,
   restoreAdminEvent,
 } from "@/lib/services/campus";
 import { getEventById } from "@/lib/services/events";
+import { toggleFavorite } from "@/lib/services/favorites";
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
 import { moderateEvent, updateAdminUser } from "@/lib/services/admin";
@@ -131,7 +131,7 @@ export async function saveEventAction(
 
   let id: string;
   try {
-    const event = saveCampusEvent(
+    const event = await saveCampusEvent(
       user,
       {
         title: text(form, "title"),
@@ -201,10 +201,12 @@ export async function eventOperationAction(
         validatedOperation,
         text(form, "reason"),
       );
-    } else if (validatedOperation === "archive") archiveAdminEvent(actor, id);
-    else if (validatedOperation === "restore") restoreAdminEvent(actor, id);
+    } else if (validatedOperation === "archive")
+      await archiveAdminEvent(actor, id);
+    else if (validatedOperation === "restore")
+      await restoreAdminEvent(actor, id);
     else
-      changeEventStatus(actor, id, validatedOperation, text(form, "reason"));
+      await changeEventStatus(actor, id, validatedOperation, text(form, "reason"));
     refresh();
     return { message: "Изменения сохранены." };
   } catch (error) {
@@ -249,16 +251,22 @@ export async function favoriteAction(
   _state: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
-  const user = await requireRole("STUDENT");
+  await requireRole("STUDENT");
   try {
-    const result = toggleStudentFavorite(user, id);
-    refresh();
+    const result = await toggleFavorite(id);
+    revalidatePath("/favorites");
+    revalidatePath(`/events/${id}`);
     return {
       message: result.isFavorite
         ? "Событие добавлено в избранное."
         : "Событие убрано из избранного.",
     };
   } catch (error) {
+    const digest =
+      typeof error === "object" && error !== null && "digest" in error
+        ? error.digest
+        : undefined;
+    if (typeof digest === "string" && digest.startsWith("NEXT_")) throw error;
     return errorState(error);
   }
 }

@@ -19,7 +19,6 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <ErrorState
           title="Не удалось загрузить афишу"
           text="Список мероприятий временно недоступен. Попробуйте обновить страницу или повторить позже."
-          onRetry={() => window.location.reload()}
         />
       </div>
     );

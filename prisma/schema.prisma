@@ -31,6 +31,9 @@ enum EventStatus {
   PENDING
   PUBLISHED
   REJECTED
+  DRAFT
+  CANCELLED
+  FINISHED
 }
 
 enum RegistrationStatus {
@@ -145,6 +148,7 @@ model Event {
 
   status          EventStatus @default(PENDING)
   rejectionReason String?
+  archivedAt      DateTime?
 
   // Приоритетная запись: до registrationOpensAt + priorityWindowHours
   // записываются только ACTIVE и участники из EventPriorityMember.
