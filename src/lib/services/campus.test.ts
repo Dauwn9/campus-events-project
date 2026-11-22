@@ -26,6 +26,11 @@ import {
 import { getEventById, getEvents, listEvents } from "./events";
 import { getCategories } from "./categories";
 import {
+  createCommentForUser,
+  deleteCommentForUser,
+  getComments,
+} from "./comments";
+import {
   getFriendsPageData,
   respondToFriendRequest,
   sendFriendRequest,
@@ -38,6 +43,8 @@ const org = { id: "org-2", role: "ORGANIZER" as const };
 const admin = { id: "admin-demo", role: "ADMIN" as const };
 const student = { id: "student-demo", role: "STUDENT" as const };
 const second = { id: "student-1", role: "STUDENT" as const };
+const commentOwner = { ...student, name: "Айжан Садыкова" };
+const commentOther = { ...second, name: "Алихан Омаров" };
 beforeEach(() => {
   if (existsSync(file)) unlinkSync(file);
 });
@@ -176,6 +183,73 @@ test("Архивная категория не попадает в выбор к
     false,
   );
   assert.throws(() => saveCampusEvent(org, event, event.id), /категорию/);
+});
+test("Комментарии создаются для опубликованных событий и видны в порядке от новых к старым", async () => {
+  const event = published();
+  const older = await createCommentForUser(commentOwner, {
+    eventId: event.id,
+    text: "  Первый вопрос по событию  ",
+  });
+  const newer = await createCommentForUser(commentOther, {
+    eventId: event.id,
+    text: "Второй вопрос",
+  });
+
+  assert.equal(older.text, "Первый вопрос по событию");
+  assert.equal(older.userName, "Айжан Садыкова");
+  assert.deepEqual(
+    (await getComments(event.id)).map((comment) => comment.id),
+    [newer.id, older.id],
+  );
+  await assert.rejects(
+    () => createCommentForUser(commentOwner, { eventId: event.id, text: " " }),
+    /Напишите комментарий/,
+  );
+  await assert.rejects(
+    () =>
+      createCommentForUser(
+        { ...org, name: "Организатор" },
+        { eventId: event.id, text: "Вопрос" },
+      ),
+    /Только студенты/,
+  );
+  const pendingEvent = makeEvent();
+  await assert.rejects(
+    () =>
+      createCommentForUser(commentOwner, {
+        eventId: pendingEvent.id,
+        text: "Вопрос",
+      }),
+    /недоступно/,
+  );
+  await assert.rejects(
+    () => createCommentForUser(commentOwner, { eventId: "missing", text: "Вопрос" }),
+    /недоступно/,
+  );
+});
+test("Комментарий может удалить автор или администратор, но не другой студент", async () => {
+  const event = published();
+  const comment = await createCommentForUser(commentOwner, {
+    eventId: event.id,
+    text: "Вопрос",
+  });
+
+  await assert.rejects(
+    deleteCommentForUser(commentOther, comment.id),
+    /чужой комментарий/,
+  );
+  assert.equal((await getComments(event.id)).length, 1);
+  assert.equal(await deleteCommentForUser(commentOwner, comment.id), event.id);
+
+  const adminComment = await createCommentForUser(commentOwner, {
+    eventId: event.id,
+    text: "Еще вопрос",
+  });
+  assert.equal(await deleteCommentForUser(admin, adminComment.id), event.id);
+  await assert.rejects(
+    deleteCommentForUser(admin, "missing"),
+    /не найден/,
+  );
 });
 test("Друзья: запрос нужно принять, друзья видят предстоящие события друг друга", () => {
   const event = published(30, 2);
