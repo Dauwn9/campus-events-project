@@ -1,7 +1,9 @@
 import { getAdminUsers } from "@/lib/services/admin";
+import { requireRole } from "@/lib/auth";
 import { PageHeading, Stats } from "@/components/workspace/WorkspaceUI";
 import UsersTable from "@/components/workspace/UsersTable";
 export default async function UsersPage() {
+  const admin = await requireRole("ADMIN");
   const users = await getAdminUsers();
   const blockedUntilLabel = (user: (typeof users)[number]) =>
     user.blocked
@@ -34,6 +36,7 @@ export default async function UsersPage() {
         ]}
       />
       <UsersTable
+        currentUserId={admin.id}
         users={users.map((user) => ({
           ...user,
           blockedUntilLabel: blockedUntilLabel(user),

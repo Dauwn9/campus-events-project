@@ -1,9 +1,16 @@
 "use server";
-import { cookies } from "next/headers";
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getCurrentUser, requireRole } from "@/lib/auth";
+import { APIError } from "better-auth/api";
+import { requireAnyRole, requireRole } from "@/lib/auth";
+import { auth } from "@/lib/better-auth";
+import { getPrisma } from "@/lib/prisma";
+import {
+  changeProfilePassword,
+  updateProfileName,
+} from "@/lib/profile";
 import {
   saveCampusEvent,
   changeEventStatus,
@@ -11,25 +18,20 @@ import {
   cancelStudentRegistration,
   toggleStudentFavorite,
   checkInParticipant,
-  updateCampusUser,
-  updateStudentGroup,
-  updateStudentProfile,
   archiveAdminEvent,
   restoreAdminEvent,
-  createAccount,
-  signIn,
-  startSession,
-  revokeSession,
 } from "@/lib/services/campus";
 import { getEventById } from "@/lib/services/events";
 import { deleteComment } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
-import { moderateEvent } from "@/lib/services/admin";
+import { moderateEvent, updateAdminUser } from "@/lib/services/admin";
 import { encodeEventCover, EventCoverError } from "@/lib/event-cover";
 import {
   isProfileField,
+  profileInputSchema,
   type ProfileField,
 } from "@/lib/validators/profile";
+import { studentGroupSchema } from "@/lib/validators/student-group";
 
 export type ActionState = {
   error?: string;
@@ -168,19 +170,27 @@ export async function eventOperationAction(
   _state: ActionState,
   form: FormData,
 ): Promise<ActionState> {
-  const actor = await getCurrentUser();
+  const parsedOperation = z
+    .enum([
+      "submit",
+      "approve",
+      "reject",
+      "cancel",
+      "delete",
+      "archive",
+      "restore",
+    ])
+    .safeParse(operation);
+  if (!parsedOperation.success) return errorState(parsedOperation.error);
+  const validatedOperation = parsedOperation.data;
+  const actor =
+    validatedOperation === "approve" ||
+    validatedOperation === "reject" ||
+    validatedOperation === "archive" ||
+    validatedOperation === "restore"
+      ? await requireRole("ADMIN")
+      : await requireAnyRole("ORGANIZER", "ADMIN");
   try {
-    const validatedOperation = z
-      .enum([
-        "submit",
-        "approve",
-        "reject",
-        "cancel",
-        "delete",
-        "archive",
-        "restore",
-      ])
-      .parse(operation);
     if (
       validatedOperation === "approve" ||
       validatedOperation === "reject"
@@ -256,7 +266,7 @@ export async function checkInAction(
   _state: CheckInState,
   form: FormData,
 ): Promise<CheckInState> {
-  const actor = await getCurrentUser();
+  const actor = await requireAnyRole("ORGANIZER", "ADMIN");
   try {
     const result = checkInParticipant(
       actor,
@@ -282,13 +292,11 @@ export async function updateUserAction(
 ): Promise<ActionState> {
   const actor = await requireRole("ADMIN");
   try {
-    const result = updateCampusUser(
-      actor,
-      id,
-      text(form, "role"),
-      form.get("blocked") === "on",
-      text(form, "banDuration"),
-    );
+    const result = await updateAdminUser(actor, id, {
+      role: text(form, "role"),
+      blocked: form.get("blocked") === "on",
+      banDuration: text(form, "banDuration"),
+    });
     refresh();
     if (result.roleChanged) {
       const roleLabels = {
@@ -308,9 +316,29 @@ export async function updateStudentGroupAction(
   _state: ActionState,
   form: FormData,
 ): Promise<ActionState> {
-  const actor = await requireRole("ADMIN");
+  await requireRole("ADMIN");
   try {
-    updateStudentGroup(actor, id, String(form.get("group") ?? ""));
+    const targetId = z.string().min(1).max(128).parse(id);
+    const groupValue = form.get("group");
+    const group = studentGroupSchema.parse(
+      typeof groupValue === "string" ? groupValue : "",
+    );
+    const prisma = getPrisma();
+    const updated = await prisma.user.updateMany({
+      where: { id: targetId, role: "STUDENT" },
+      data: { group },
+    });
+    if (updated.count === 0) {
+      const user = await prisma.user.findUnique({
+        where: { id: targetId },
+        select: { id: true },
+      });
+      if (!user) throw new ServiceError("NOT_FOUND", "Пользователь не найден.");
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Учебную группу можно изменить только студенту.",
+      );
+    }
     refresh();
     return { message: "Учебная группа сохранена." };
   } catch (error) {
@@ -321,14 +349,23 @@ export async function profileAction(
   _state: ProfileActionState,
   form: FormData,
 ): Promise<ProfileActionState> {
-  const actor = await requireRole("STUDENT");
+  const actor = await requireAnyRole("STUDENT", "ORGANIZER", "ADMIN");
   try {
-    updateStudentProfile(actor, {
+    const profile = {
       name: text(form, "name"),
       currentPassword: String(form.get("currentPassword") ?? ""),
       password: String(form.get("password") ?? ""),
       passwordConfirmation: String(form.get("passwordConfirmation") ?? ""),
-    });
+    };
+    const parsed = profileInputSchema.parse(profile);
+    if (parsed.password) {
+      await changeProfilePassword(
+        new Headers(await headers()),
+        parsed.currentPassword,
+        parsed.password,
+      );
+    }
+    await updateProfileName(actor.id, parsed.name);
     refresh();
     return { message: "Профиль сохранён." };
   } catch (error) {
@@ -353,6 +390,7 @@ export async function deleteCommentAction(
   _state: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
+  await requireAnyRole("STUDENT", "ADMIN");
   try {
     await deleteComment(id);
     refresh();
@@ -361,21 +399,11 @@ export async function deleteCommentAction(
     return errorState(error);
   }
 }
-async function setSession(token: string) {
-  const jar = await cookies();
-  jar.delete("dev-role");
-  jar.set("campus-session", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.CAMPUS_COOKIE_SECURE === "true",
-    path: "/",
-    maxAge: 7 * 86400,
-  });
-}
 export async function loginAction(
   _state: ActionState,
   form: FormData,
 ): Promise<ActionState> {
+  let destination = "/";
   try {
     const data = z
       .object({ email: z.email(), password: z.string().min(1).max(128) })
@@ -383,39 +411,68 @@ export async function loginAction(
         email: text(form, "email"),
         password: String(form.get("password") ?? ""),
       });
-    await setSession(signIn(data.email, data.password));
+    const result = await auth.api.signInEmail({
+      body: data,
+      headers: await headers(),
+    });
+    const user = await getPrisma().user.findUnique({
+      where: { id: result.user.id },
+      select: { role: true },
+    });
+    if (!user) throw new Error("Пользователь не найден после входа.");
+    destination =
+      user.role === "ADMIN"
+        ? "/admin"
+        : user.role === "ORGANIZER"
+          ? "/organizer"
+          : "/";
   } catch (error) {
+    if (error instanceof APIError && error.statusCode === 401) {
+      return {
+        error: "Неверный email или пароль, либо аккаунт заблокирован.",
+      };
+    }
     return errorState(error);
   }
   refresh();
-  redirect("/");
+  redirect(destination);
 }
 export async function registerAccountAction(
   _state: ActionState,
   form: FormData,
 ): Promise<ActionState> {
   try {
-    const data = {
-      name: text(form, "name"),
-      email: text(form, "email"),
-      password: String(form.get("password") ?? ""),
-    };
+    const data = z
+      .object({
+        name: z.string().trim().min(2).max(80),
+        email: z.email().max(150).transform((email) => email.toLowerCase()),
+        password: z.string().min(8).max(128),
+      })
+      .parse({
+        name: text(form, "name"),
+        email: text(form, "email"),
+        password: String(form.get("password") ?? ""),
+      });
     if (data.password !== form.get("confirmPassword"))
       return { error: "Пароли не совпадают." };
-    const user = createAccount(data);
-    await setSession(startSession(user.id));
+    await auth.api.signUpEmail({
+      body: data,
+      headers: await headers(),
+    });
   } catch (error) {
+    if (
+      error instanceof APIError &&
+      error.body?.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"
+    ) {
+      return { error: "Этот email уже зарегистрирован." };
+    }
     return errorState(error);
   }
   refresh();
   redirect("/profile");
 }
 export async function logoutAction() {
-  const jar = await cookies();
-  const token = jar.get("campus-session")?.value;
-  if (token) revokeSession(token);
-  jar.delete("campus-session");
-  jar.delete("dev-role");
+  await auth.api.signOut({ headers: await headers() });
   refresh();
   redirect("/");
 }

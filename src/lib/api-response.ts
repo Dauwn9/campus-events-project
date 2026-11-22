@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { ServiceError, type ServiceErrorCode } from "@/lib/services/errors";
+import type { AuthenticatedRole } from "@/lib/roles";
 
 const STATUS: Record<ServiceErrorCode, number> = {
   UNAUTHORIZED: 401,
@@ -45,6 +46,16 @@ export function apiError(error: unknown) {
 /** Для API: гость получает 401 вместо redirect. */
 export async function requireUser() {
   const user = await getCurrentUser();
-  if (!user.id) throw new ServiceError("UNAUTHORIZED", "Войдите в аккаунт.");
+  if (!user.id || user.role === "GUEST")
+    throw new ServiceError("UNAUTHORIZED", "Войдите в аккаунт.");
+  return user;
+}
+
+export async function requireApiRole(...roles: AuthenticatedRole[]) {
+  const user = await getCurrentUser();
+  if (!user.id || user.role === "GUEST")
+    throw new ServiceError("UNAUTHORIZED", "Войдите в аккаунт.");
+  if (!roles.includes(user.role))
+    throw new ServiceError("FORBIDDEN", "Это действие недоступно вашей роли.");
   return user;
 }

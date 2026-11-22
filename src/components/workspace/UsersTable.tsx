@@ -22,8 +22,14 @@ const roleLabels: Record<string, string> = {
   ADMIN: "Администратор",
 };
 
-function UserRow({ user }: { user: Row }) {
-  const fixed = ["student-demo", "org-2", "admin-demo"].includes(user.id);
+function UserRow({
+  user,
+  currentUserId,
+}: {
+  user: Row;
+  currentUserId: string;
+}) {
+  const isCurrentUser = user.id === currentUserId;
 
   return (
     <article className="user-row">
@@ -41,7 +47,6 @@ function UserRow({ user }: { user: Row }) {
           <small>
             Роль: {roleLabels[user.role] ?? user.role} ·{" "}
             {user.group || "Сотрудник / организатор"}
-            {fixed ? " · Демо-аккаунт" : ""}
             {user.blockedUntilLabel
               ? ` · Блокировка: ${user.blockedUntilLabel}`
               : ""}
@@ -65,7 +70,7 @@ function UserRow({ user }: { user: Row }) {
                 key={user.role}
                 name="role"
                 defaultValue={user.role}
-                disabled={fixed}
+                disabled={isCurrentUser}
               >
                 <option value="STUDENT">Студент</option>
                 <option value="ORGANIZER">Организатор</option>
@@ -77,7 +82,7 @@ function UserRow({ user }: { user: Row }) {
                 type="checkbox"
                 name="blocked"
                 defaultChecked={user.blocked}
-                disabled={fixed}
+                disabled={isCurrentUser}
               />
               Заблокирован
             </label>
@@ -86,7 +91,7 @@ function UserRow({ user }: { user: Row }) {
               <select
                 name="banDuration"
                 defaultValue={user.blocked ? "keep" : "7d"}
-                disabled={fixed}
+                disabled={isCurrentUser}
               >
                 {user.blocked && (
                   <option value="keep">Не менять срок</option>
@@ -100,7 +105,7 @@ function UserRow({ user }: { user: Row }) {
             <button
               className="workspace-button secondary"
               aria-label={`Сохранить изменения пользователя ${user.email}`}
-              disabled={fixed}
+              disabled={isCurrentUser}
             >
               Сохранить
             </button>
@@ -134,7 +139,13 @@ function UserRow({ user }: { user: Row }) {
   );
 }
 
-export default function UsersTable({ users }: { users: Row[] }) {
+export default function UsersTable({
+  users,
+  currentUserId,
+}: {
+  users: Row[];
+  currentUserId: string;
+}) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("all");
   const [page, setPage] = useState(0);
@@ -181,7 +192,13 @@ export default function UsersTable({ users }: { users: Row[] }) {
         tabIndex={0}
       >
         {filtered.slice(page * 15, (page + 1) * 15).map((user) => {
-          return <UserRow key={user.id} user={user} />;
+          return (
+            <UserRow
+              key={user.id}
+              user={user}
+              currentUserId={currentUserId}
+            />
+          );
         })}
       </div>
       {!filtered.length && (

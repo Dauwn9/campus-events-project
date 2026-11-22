@@ -2,6 +2,7 @@ import Link from "next/link";
 import ActionForm from "./ActionForm";
 import { loginAction, registerAccountAction } from "@/app/campus-actions";
 import Icon from "@/components/ui/Icon";
+import AuthPasswordInput from "./AuthPasswordInput";
 export default function AuthForm({ register = false }: { register?: boolean }) {
   return (
     <div className="auth-card">
@@ -43,29 +44,21 @@ export default function AuthForm({ register = false }: { register?: boolean }) {
             placeholder="name@example.com"
           />
         </label>
-        <label>
-          Пароль
-          <input
-            name="password"
-            type="password"
-            required
-            minLength={register ? 8 : 1}
-            maxLength={128}
-            autoComplete={register ? "new-password" : "current-password"}
-          />
-        </label>
+        <AuthPasswordInput
+          label="Пароль"
+          name="password"
+          minLength={register ? 8 : 1}
+          maxLength={128}
+          autoComplete={register ? "new-password" : "current-password"}
+        />
         {register && (
-          <label>
-            Повторите пароль
-            <input
-              name="confirmPassword"
-              type="password"
-              required
-              minLength={8}
-              maxLength={128}
-              autoComplete="new-password"
-            />
-          </label>
+          <AuthPasswordInput
+            label="Повторите пароль"
+            name="confirmPassword"
+            minLength={8}
+            maxLength={128}
+            autoComplete="new-password"
+          />
         )}
         <button className="workspace-button">
           {register ? "Создать аккаунт" : "Войти"}
@@ -83,11 +76,11 @@ export default function AuthForm({ register = false }: { register?: boolean }) {
         <p>Локальное демо. Используйте тестовые данные.</p>
         <dl>
           <dt>Студент</dt>
-          <dd>student@demo.aiu.kz</dd>
+          <dd>student1@campus.kz</dd>
           <dt>Организатор</dt>
-          <dd>organizer2@demo.aiu.kz</dd>
+          <dd>organizer1@campus.kz</dd>
           <dt>Администратор</dt>
-          <dd>admin@demo.aiu.kz</dd>
+          <dd>admin@campus.kz</dd>
           <dt>Общий пароль</dt>
           <dd>Campus2026!</dd>
         </dl>

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { getCurrentUser } from "@/lib/auth";
-import DevRoleSwitcher from "@/components/layout/DevRoleSwitcher";
 import { ToastProvider } from "@/components/ui/Toast";
 
 const inter = Inter({
@@ -15,18 +13,16 @@ export const metadata: Metadata = {
   description: "События Международного университета Астана: лекции, музыка, искусство и карьера. Найди своё событие в AIU.",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getCurrentUser();
   return (
     <html lang="ru">
       <body className={inter.variable}>
         <a className="skip-link" href="#main-content">Перейти к содержимому</a>
         <ToastProvider>{children}</ToastProvider>
-        {process.env.NEXT_PUBLIC_USE_MOCKS!=="false"&&<DevRoleSwitcher current={user.role} />}
       </body>
     </html>
   );

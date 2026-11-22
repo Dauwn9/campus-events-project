@@ -1,10 +1,32 @@
 import { requireRole } from "@/lib/auth";
 import { readStore, type CampusAuditEntry } from "./demo-store";
-import { changeEventStatus, isCampusUserBlocked } from "./campus";
+import {
+  changeEventStatus,
+  recordCampusUserAudit,
+} from "./campus";
 import type { Event } from "@/lib/validators/event";
 import { getPrisma } from "@/lib/prisma";
 import { ServiceError, USE_MOCKS } from "./errors";
-import type { Role } from "@/lib/roles";
+import { z } from "zod";
+import { toAppRole, type Role } from "@/lib/roles";
+
+const adminUserUpdateSchema = z
+  .object({
+    role: z.enum(["STUDENT", "ORGANIZER", "ADMIN"]),
+    blocked: z.boolean().optional(),
+    banDuration: z.enum(["keep", "1d", "7d", "30d", "permanent"]).optional(),
+  })
+  .strict();
+
+function isDatabaseUserBlocked(
+  user: { blocked: boolean; blockedUntil: Date | null },
+  now = Date.now(),
+) {
+  return (
+    user.blocked &&
+    (!user.blockedUntil || user.blockedUntil.getTime() > now)
+  );
+}
 
 const isActiveEvent = (event: Event) => !event.archivedAt;
 
@@ -120,17 +142,151 @@ export async function moderateEvent(
 
 export async function getAdminUsers() {
   await requireRole("ADMIN");
-  return readStore().users.map(
-    ({ id, name, email, role, group, blocked, blockedUntil }) => ({
-      id,
-      name,
-      email,
-      role,
-      group,
-      blocked: isCampusUserBlocked({ blocked, blockedUntil }),
-      blockedUntil: blockedUntil ?? null,
-    }),
+  const users = await getPrisma().user.findMany({
+    orderBy: [{ name: "asc" }, { email: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      group: true,
+      blocked: true,
+      blockedUntil: true,
+    },
+  });
+  return users.map((user) => ({
+    ...user,
+    role: toAppRole(user.role),
+    group: user.group ?? "",
+    blocked: isDatabaseUserBlocked(user),
+    blockedUntil: user.blockedUntil?.toISOString() ?? null,
+  }));
+}
+
+export async function updateAdminUser(actor: {
+  id: string;
+  name: string;
+  role: Role;
+}, id: string, input: unknown) {
+  const data = adminUserUpdateSchema.parse(input);
+  const updated = await getPrisma().$transaction(
+    async (transaction) => {
+      const current = await transaction.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          blocked: true,
+          blockedUntil: true,
+        },
+      });
+      if (!current) throw new ServiceError("NOT_FOUND", "Пользователь не найден.");
+      if (actor.id === id && data.role !== current.role) {
+        throw new ServiceError(
+          "FORBIDDEN",
+          "Нельзя изменить собственную роль.",
+        );
+      }
+      if (
+        current.role === "ADMIN" &&
+        data.role !== "ADMIN" &&
+        (await transaction.user.count({ where: { role: "ADMIN" } })) <= 1
+      ) {
+        throw new ServiceError(
+          "FORBIDDEN",
+          "Нельзя понизить последнего администратора.",
+        );
+      }
+
+      const wasBlocked = isDatabaseUserBlocked(current);
+      let blocked = current.blocked;
+      let blockedUntil = current.blockedUntil;
+      if (data.blocked === false) {
+        blocked = false;
+        blockedUntil = null;
+      } else if (data.blocked === true) {
+        blocked = true;
+        const duration = data.banDuration ?? "keep";
+        if (duration === "keep") {
+          if (!wasBlocked) {
+            throw new ServiceError(
+              "FORBIDDEN",
+              "Для новой блокировки выберите срок.",
+            );
+          }
+        } else {
+          blockedUntil =
+            duration === "permanent"
+              ? null
+              : new Date(Date.now() + Number.parseInt(duration, 10) * 86400000);
+        }
+      }
+
+      const user = await transaction.user.update({
+        where: { id },
+        data: { role: data.role, blocked, blockedUntil },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          blocked: true,
+          blockedUntil: true,
+        },
+      });
+      return {
+        user,
+        previousRole: current.role,
+        wasBlocked,
+        blocked: isDatabaseUserBlocked(user),
+        previousBlockedUntil: current.blockedUntil,
+        roleChanged: current.role !== user.role,
+        blockedUntilChanged:
+          current.blockedUntil?.getTime() !== user.blockedUntil?.getTime(),
+      };
+    },
+    { isolationLevel: "Serializable" },
   );
+
+  recordCampusUserAudit(actor, updated.user, [
+    ...(updated.roleChanged
+      ? [
+          {
+            field: "role",
+            oldValue: updated.previousRole,
+            newValue: data.role,
+          },
+        ]
+      : []),
+    ...(updated.wasBlocked !== updated.blocked
+      ? [
+          {
+            field: "blocked",
+            oldValue: updated.wasBlocked,
+            newValue: updated.blocked,
+          },
+        ]
+      : []),
+    ...(updated.blockedUntilChanged
+      ? [
+          {
+            field: "blockedUntil",
+            oldValue: updated.previousBlockedUntil,
+            newValue: updated.user.blockedUntil,
+          },
+        ]
+      : []),
+  ]);
+
+  return {
+    id: updated.user.id,
+    role: updated.user.role,
+    blocked: updated.blocked,
+    blockedUntil: updated.user.blockedUntil?.toISOString() ?? null,
+    roleChanged: updated.roleChanged,
+  };
 }
 
 export async function getAdminAuditLog(): Promise<Array<CampusAuditEntry & { actorRole?: string | null }>> {
