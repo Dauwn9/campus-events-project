@@ -14,14 +14,33 @@ export default function Modal({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
+      className="admin-modal-backdrop fixed inset-0 z-40 flex items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-card bg-white p-6 shadow-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        className="admin-modal-surface max-h-[90vh] w-full max-w-md overflow-y-auto rounded-card border border-border bg-surface p-6 text-text shadow-modal"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
       >
-        <h2 className="mb-4 text-xl font-bold">{title}</h2>
+        <header className="mb-5 flex items-center justify-between gap-4">
+          <h2 id="modal-title" className="text-xl font-bold">
+            {title}
+          </h2>
+          <button
+            type="button"
+            className="rounded-control px-3 py-2 text-sm text-muted hover:bg-muted/10"
+            onClick={onClose}
+            aria-label="Закрыть окно"
+            autoFocus
+          >
+            Закрыть
+          </button>
+        </header>
         {children}
       </div>
     </div>

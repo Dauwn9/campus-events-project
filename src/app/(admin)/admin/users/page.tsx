@@ -5,16 +5,6 @@ import UsersTable from "@/components/workspace/UsersTable";
 export default async function UsersPage() {
   const admin = await requireRole("ADMIN");
   const users = await getAdminUsers();
-  const blockedUntilLabel = (user: (typeof users)[number]) =>
-    user.blocked
-      ? user.blockedUntil
-        ? `До ${new Intl.DateTimeFormat("ru-RU", {
-            dateStyle: "medium",
-            timeStyle: "short",
-            timeZone: "Asia/Almaty",
-          }).format(new Date(user.blockedUntil))}`
-        : "Без срока"
-      : "";
   return (
     <>
       <PageHeading
@@ -37,10 +27,7 @@ export default async function UsersPage() {
       />
       <UsersTable
         currentUserId={admin.id}
-        users={users.map((user) => ({
-          ...user,
-          blockedUntilLabel: blockedUntilLabel(user),
-        }))}
+        users={users}
       />
     </>
   );

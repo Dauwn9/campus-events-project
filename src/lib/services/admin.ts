@@ -317,6 +317,49 @@ export async function getAdminArchivedEvents() {
 
 export async function getAdminOverview() {
   await requireRole("ADMIN");
+  if (!USE_MOCKS) {
+    const prisma = getPrisma();
+    const [totalEvents, publishedEvents, totalRegistrations, totalUsers, events] =
+      await Promise.all([
+        prisma.event.count(),
+        prisma.event.count({ where: { status: "PUBLISHED" } }),
+        prisma.registration.count({ where: { status: "CONFIRMED" } }),
+        prisma.user.count(),
+        prisma.event.findMany({
+          where: { status: "PUBLISHED" },
+          select: { id: true, title: true },
+        }),
+      ]);
+    const registrationCounts = events.length
+      ? await prisma.registration.groupBy({
+          by: ["eventId"],
+          where: {
+            eventId: { in: events.map((event) => event.id) },
+            status: "CONFIRMED",
+          },
+          _count: { _all: true },
+        })
+      : [];
+    const countByEvent = new Map(
+      registrationCounts.map((item) => [item.eventId, item._count._all]),
+    );
+
+    return {
+      totalEvents,
+      publishedEvents,
+      totalRegistrations,
+      totalUsers,
+      popularEvents: events
+        .map((event) => ({
+          id: event.id,
+          title: event.title,
+          registeredCount: countByEvent.get(event.id) ?? 0,
+        }))
+        .sort((a, b) => b.registeredCount - a.registeredCount)
+        .slice(0, 5),
+    };
+  }
+
   const store = readStore();
   return {
     totalEvents: store.events.filter(isActiveEvent).length,

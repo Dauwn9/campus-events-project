@@ -11,15 +11,22 @@ import {
   restoreCategory,
   updateCategory,
 } from "@/lib/services/categories";
-import { createComment } from "@/lib/services/comments";
+import { createCommentForUser } from "@/lib/services/comments";
 import { categoryInputSchema } from "@/lib/validators/category";
 import { createCommentInputSchema } from "@/lib/validators/comment";
+import { categoryErrorRedirectPath } from "@/lib/admin-category-navigation";
 
 const categoryPath = "/admin/categories";
 
-function redirectWithCategoryError(error: unknown): never {
+function redirectWithCategoryError(error: unknown, formData: FormData): never {
   if (error instanceof ServiceError) {
-    redirect(`${categoryPath}?error=${encodeURIComponent(error.code)}`);
+    redirect(
+      categoryErrorRedirectPath(
+        error.code,
+        formData.get("modal"),
+        formData.get("id"),
+      ),
+    );
   }
   throw error;
 }
@@ -31,12 +38,14 @@ export async function createCategoryAction(formData: FormData) {
     name,
     slug: typeof name === "string" ? makeCategorySlug(name) : "",
   });
-  if (!parsed.success) redirect(`${categoryPath}?error=invalid`);
+  if (!parsed.success) {
+    redirect(categoryErrorRedirectPath("invalid", formData.get("modal"), null));
+  }
 
   try {
     await createCategory(parsed.data);
   } catch (error) {
-    redirectWithCategoryError(error);
+    redirectWithCategoryError(error, formData);
   }
   revalidatePath(categoryPath);
   revalidatePath("/");
@@ -49,19 +58,29 @@ export async function updateCategoryAction(formData: FormData) {
   const id = formData.get("id");
   const name = formData.get("name");
   if (typeof id !== "string" || id.length === 0) {
-    redirect(`${categoryPath}?error=not-found`);
+    redirect(
+      categoryErrorRedirectPath("not-found", formData.get("modal"), id),
+    );
   }
   const parsed = categoryInputSchema.safeParse({
     name,
     slug: typeof name === "string" ? makeCategorySlug(name) : "",
   });
-  if (!parsed.success) redirect(`${categoryPath}?error=invalid`);
+  if (!parsed.success) {
+    redirect(
+      categoryErrorRedirectPath("invalid", formData.get("modal"), id),
+    );
+  }
 
   try {
     const category = await updateCategory(id, parsed.data);
-    if (!category) redirect(`${categoryPath}?error=not-found`);
+    if (!category) {
+      redirect(
+        categoryErrorRedirectPath("not-found", formData.get("modal"), id),
+      );
+    }
   } catch (error) {
-    redirectWithCategoryError(error);
+    redirectWithCategoryError(error, formData);
   }
   revalidatePath(categoryPath);
   revalidatePath("/");
@@ -78,7 +97,7 @@ export async function archiveCategoryAction(formData: FormData) {
   try {
     await archiveCategory(id);
   } catch (error) {
-    redirectWithCategoryError(error);
+    redirectWithCategoryError(error, formData);
   }
   revalidatePath(categoryPath);
   revalidatePath("/admin/archive");
@@ -120,11 +139,7 @@ export async function addCommentAction(formData: FormData) {
     redirect(`/events/${encodeURIComponent(safeEventId)}?commentError=invalid`);
   }
 
-  await createComment({
-    ...parsed.data,
-    userId: user.id,
-    userName: user.name,
-  });
+  await createCommentForUser(user, parsed.data);
   const eventPath = `/events/${encodeURIComponent(parsed.data.eventId)}`;
   revalidatePath(eventPath);
   redirect(`${eventPath}?commentStatus=added`);

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ActionForm from "./ActionForm";
 import {
   updateStudentGroupAction,
@@ -7,13 +7,18 @@ import {
 } from "@/app/campus-actions";
 import Icon from "@/components/ui/Icon";
 import HistoryLinkButton from "@/components/admin/HistoryLinkButton";
+import {
+  filterUsersByBanTime,
+  formatBanRemaining,
+  type BanTimeFilter,
+} from "@/lib/admin-filters";
 type Row = {
   id: string;
   name: string;
   email: string;
   role: string;
   blocked: boolean;
-  blockedUntilLabel: string;
+  blockedUntil: string | null;
   group: string;
 };
 const roleLabels: Record<string, string> = {
@@ -25,11 +30,17 @@ const roleLabels: Record<string, string> = {
 function UserRow({
   user,
   currentUserId,
+  now,
 }: {
   user: Row;
   currentUserId: string;
+  now: number | null;
 }) {
   const isCurrentUser = user.id === currentUserId;
+  const banRemaining =
+    now === null
+      ? null
+      : formatBanRemaining(user.blocked, user.blockedUntil, now);
 
   return (
     <article className="user-row">
@@ -47,10 +58,12 @@ function UserRow({
           <small>
             Роль: {roleLabels[user.role] ?? user.role} ·{" "}
             {user.group || "Сотрудник / организатор"}
-            {user.blockedUntilLabel
-              ? ` · Блокировка: ${user.blockedUntilLabel}`
-              : ""}
           </small>
+          {banRemaining && (
+            <small className="user-ban-countdown">
+              До разблокировки: {banRemaining}
+            </small>
+          )}
         </div>
       </div>
       <div className="user-actions-row">
@@ -146,12 +159,24 @@ export default function UsersTable({
   users: Row[];
   currentUserId: string;
 }) {
+  const [now, setNow] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("all");
+  const [banTime, setBanTime] = useState<BanTimeFilter>("all");
   const [page, setPage] = useState(0);
+  useEffect(() => {
+    const updateTime = () => setNow(Date.now());
+    updateTime();
+    const interval = window.setInterval(updateTime, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const filtered = users.filter(
     (u) =>
       (role === "all" || u.role === role) &&
+      (now === null
+        ? banTime === "all"
+        : filterUsersByBanTime(u, banTime, now)) &&
       `${u.name} ${u.email} ${u.group}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -184,6 +209,21 @@ export default function UsersTable({
           <option value="ORGANIZER">Организаторы</option>
           <option value="ADMIN">Администраторы</option>
         </select>
+        <select
+          aria-label="Срок до разблокировки"
+          value={banTime}
+          onChange={(e) => {
+            setBanTime(e.target.value as BanTimeFilter);
+            setPage(0);
+          }}
+        >
+          <option value="all">Любой срок блокировки</option>
+          <option value="blocked">Все заблокированные</option>
+          <option value="within-day">До 24 часов</option>
+          <option value="within-week">От 1 до 7 дней</option>
+          <option value="over-week">Более 7 дней</option>
+          <option value="permanent">Без срока</option>
+        </select>
       </div>
       <div
         className="users-list"
@@ -197,6 +237,7 @@ export default function UsersTable({
               key={user.id}
               user={user}
               currentUserId={currentUserId}
+              now={now}
             />
           );
         })}

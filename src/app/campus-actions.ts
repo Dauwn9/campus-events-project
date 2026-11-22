@@ -22,7 +22,7 @@ import {
   restoreAdminEvent,
 } from "@/lib/services/campus";
 import { getEventById } from "@/lib/services/events";
-import { deleteComment } from "@/lib/services/comments";
+import { deleteCommentForUser } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
 import { moderateEvent, updateAdminUser } from "@/lib/services/admin";
 import { encodeEventCover, EventCoverError } from "@/lib/event-cover";
@@ -390,9 +390,9 @@ export async function deleteCommentAction(
   _state: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
-  await requireAnyRole("STUDENT", "ADMIN");
+  const actor = await requireAnyRole("STUDENT", "ADMIN");
   try {
-    await deleteComment(id);
+    await deleteCommentForUser(actor, id);
     refresh();
     return { message: "Комментарий удалён." };
   } catch (error) {
