@@ -7,7 +7,7 @@
     "build": "prisma generate --config prisma7.config.ts && next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test src/lib/services/campus.test.ts src/lib/audit-history.test.ts src/lib/event-cover.test.ts"
+    "test": "node --import tsx --test src/lib/services/campus.test.ts src/lib/audit-history.test.ts src/lib/event-cover.test.ts src/lib/admin-filters.test.ts src/lib/admin-category-navigation.test.ts"
   },
   "dependencies": {
     "@neon/config": "^1.14.5",
@@ -25,7 +25,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@tailwindcss/turbopack": "^4",
+    "@tailwindcss/postcss": "^4.3.5",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
