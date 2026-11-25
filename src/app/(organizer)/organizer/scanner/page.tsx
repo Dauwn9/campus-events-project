@@ -1,5 +1,5 @@
 import { requireRole } from "@/lib/auth";
-import { readStore } from "@/lib/services/demo-store";
+import { getScannerEvents } from "@/lib/services/organizer";
 import { PageHeading } from "@/components/workspace/WorkspaceUI";
 import Scanner from "@/components/workspace/Scanner";
 export default async function ScannerPage({
@@ -9,26 +9,7 @@ export default async function ScannerPage({
 }) {
   const actor = await requireRole("ORGANIZER");
   const query = await searchParams;
-  const store = readStore();
-  const now = new Date();
-  const events = store.events
-    .filter((e) => e.organizerId === actor.id && e.status === "PUBLISHED")
-    .sort(
-      (a, b) =>
-        Math.abs(Date.parse(a.startsAt) - now.getTime()) -
-        Math.abs(Date.parse(b.startsAt) - now.getTime()),
-    )
-    .map((e) => ({
-      id: e.id,
-      title: e.title,
-      startsAt: e.startsAt,
-      endsAt: e.endsAt,
-      registeredCount: e.registeredCount,
-      location: e.location,
-      checked: store.registrations.filter(
-        (r) => r.eventId === e.id && r.checkedInAt,
-      ).length,
-    }));
+  const events = await getScannerEvents(actor.id);
   return (
     <>
       <PageHeading

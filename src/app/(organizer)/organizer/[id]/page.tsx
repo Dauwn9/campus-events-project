@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
-import { readStore } from "@/lib/services/demo-store";
+import { getEventById } from "@/lib/services/events";
+import { getEventParticipants } from "@/lib/services/organizer";
 import { datePart } from "@/lib/event-design";
 import { eventOperationAction } from "@/app/campus-actions";
 import {
@@ -23,24 +24,10 @@ export default async function OrganizerEventPage({
   const user = await requireRole("ORGANIZER");
   const { id } = await params;
   const query = await searchParams;
-  const store = readStore();
-  const event = store.events.find(
-    (e) => e.id === id && e.organizerId === user.id,
-  );
-  if (!event) notFound();
-  const registrations = store.registrations.filter((r) => r.eventId === id);
-  const participants = registrations.map((r) => {
-    const person = store.users.find((u) => u.id === r.userId)!;
-    return {
-      id: r.id,
-      name: person.name,
-      email: person.email,
-      group: person.group,
-      status: r.status,
-      checkedInAt: r.checkedInAt,
-      shortCode: r.shortCode,
-    };
-  });
+  const owned = await getEventById(id);
+  if (!owned || owned.organizerId !== user.id) notFound();
+  const { event, participants } = await getEventParticipants(user, id);
+  const registrations = participants;
   return (
     <>
       <Link className="workspace-back" href="/organizer">

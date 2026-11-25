@@ -6,6 +6,7 @@ import {
 } from "@/app/social-actions";
 import { getFriendsPageData } from "@/lib/services/social";
 import { requireRole } from "@/lib/auth";
+import { USE_MOCKS } from "@/lib/services/errors";
 import { datePart } from "@/lib/event-design";
 import { PageHeading, Empty, Status } from "@/components/workspace/WorkspaceUI";
 
@@ -58,6 +59,18 @@ export default async function FriendsPage({
   }>;
 }) {
   const [student, query] = await Promise.all([requireRole("STUDENT"), searchParams]);
+  if (!USE_MOCKS)
+    return (
+      <div className="space-y-6">
+        <PageHeading eyebrow="ЛИЧНЫЙ КАБИНЕТ" title="Друзья" text="Раздел скоро появится." />
+        <Empty
+          title="Друзья появятся позже"
+          text="Мы переносим этот раздел на общую базу данных. А пока загляните в афишу."
+          href="/"
+          label="Открыть афишу"
+        />
+      </div>
+    );
   const data = getFriendsPageData(student, query.q ?? "");
 
   return (
