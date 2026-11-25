@@ -1,6 +1,5 @@
 import { apiError, requireApiRole } from "@/lib/api-response";
-import { saveCampusEvent } from "@/lib/services/campus";
-import { listEvents } from "@/lib/services/events";
+import { listEvents, saveEvent } from "@/lib/services/events";
 import { eventQuerySchema } from "@/lib/validators/event-query";
 
 export async function GET(request: Request) {
@@ -17,7 +16,7 @@ export async function POST(request: Request) {
     const user = await requireApiRole("ORGANIZER");
     const body = await request.json();
     // organizerId и статус клиенту не доверяем: ставим сами
-    const event = saveCampusEvent(user, {
+    const event = await saveEvent(user, {
       ...body,
       organizerId: user.id,
       status: body?.status === "DRAFT" ? "DRAFT" : "PENDING",

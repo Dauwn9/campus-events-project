@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { markNotificationReadAction } from "@/app/social-actions";
 import { requireRole } from "@/lib/auth";
+import { USE_MOCKS } from "@/lib/services/errors";
 import { getMyNotifications } from "@/lib/services/notifications";
 import { datePart } from "@/lib/event-design";
 import { Empty, PageHeading, Status } from "@/components/workspace/WorkspaceUI";
@@ -14,6 +15,18 @@ export default async function NotificationsPage({
     requireRole("STUDENT"),
     searchParams,
   ]);
+  if (!USE_MOCKS)
+    return (
+      <div className="space-y-6">
+        <PageHeading eyebrow="ЛИЧНЫЙ КАБИНЕТ" title="Уведомления" text="Раздел скоро появится." />
+        <Empty
+          title="Уведомления появятся позже"
+          text="Мы переносим этот раздел на общую базу данных. Актуальный статус ваших записей — в «Моих регистрациях»."
+          href="/my-registrations"
+          label="Мои регистрации"
+        />
+      </div>
+    );
   const notifications = getMyNotifications(student);
   const unreadCount = notifications.filter((item) => !item.readAt).length;
 
