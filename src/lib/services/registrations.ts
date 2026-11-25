@@ -13,6 +13,8 @@ import type {
 import { ServiceError } from "./errors";
 import { getPrisma } from "@/lib/prisma";
 import { USE_MOCKS } from "./errors";
+import { getEventById } from "./events";
+import type { Event } from "@/lib/validators/event";
 
 export async function getMyRegistrations(
   filter: Partial<MyRegistrationsFilter> = {},
@@ -59,12 +61,7 @@ export async function getMyRegistrations(
           capacity: registration.event.capacity,
           categoryId: registration.event.categoryId,
           organizerId: registration.event.organizerId,
-          status:
-            registration.event.status === "PUBLISHED"
-              ? ("PUBLISHED" as const)
-              : registration.event.status === "PENDING"
-                ? ("PENDING" as const)
-                : ("REJECTED" as const),
+          status: registration.event.status,
           imageUrl: registration.event.coverUrl ?? undefined,
         },
       }))
@@ -108,14 +105,61 @@ export async function getEventRegistrationState(
   id: string,
 ): Promise<EventRegistrationState> {
   const user = await getCurrentUser();
-  const store = readStore();
-  const event = store.events.find((e) => e.id === id);
-  if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено");
-  const mine =
-    store.registrations.find(
-      (r) =>
-        r.eventId === id && r.userId === user.id && r.status !== "CANCELLED",
-    ) ?? null;
+  let event: Event;
+  let mine: EventRegistrationState["myRegistration"];
+  let isActive: boolean;
+  let isPriorityMember: boolean;
+  if (!USE_MOCKS) {
+    const found = await getEventById(id);
+    if (!found) throw new ServiceError("NOT_FOUND", "Событие не найдено");
+    event = found;
+    const [registration, profile, member] = await Promise.all([
+      user.id
+        ? getPrisma().registration.findFirst({
+            where: { eventId: id, userId: user.id, status: { not: "CANCELLED" } },
+          })
+        : null,
+      user.id
+        ? getPrisma().user.findUnique({
+            where: { id: user.id },
+            select: { priorityStatus: true },
+          })
+        : null,
+      user.id
+        ? getPrisma().eventPriorityMember.findUnique({
+            where: { eventId_userId: { eventId: id, userId: user.id } },
+            select: { userId: true },
+          })
+        : null,
+    ]);
+    mine = registration
+      ? {
+          id: registration.id,
+          userId: registration.userId,
+          eventId: registration.eventId,
+          status: registration.status,
+          createdAt: registration.createdAt.toISOString(),
+          qrToken: registration.qrToken,
+          checkedInAt: registration.checkedInAt?.toISOString() ?? null,
+          checkedInById: registration.checkedInById,
+          shortCode: null,
+        }
+      : null;
+    isActive = profile?.priorityStatus === "ACTIVE";
+    isPriorityMember = Boolean(member);
+  } else {
+    const store = readStore();
+    const found = store.events.find((e) => e.id === id);
+    if (!found) throw new ServiceError("NOT_FOUND", "Событие не найдено");
+    event = found;
+    mine =
+      store.registrations.find(
+        (r) =>
+          r.eventId === id && r.userId === user.id && r.status !== "CANCELLED",
+      ) ?? null;
+    isActive = getStudentPriorityStatus(store, user.id) === "ACTIVE";
+    isPriorityMember = isPriorityEventMember(store, user.id, id);
+  }
   const now = Date.now();
   const openAt = event.registrationOpensAt
     ? Date.parse(event.registrationOpensAt)
@@ -126,8 +170,6 @@ export async function getEventRegistrationState(
       : null;
   const withinPriorityWindow =
     Boolean(openAt && priorityDeadline && now >= openAt && now < priorityDeadline);
-  const isActive = getStudentPriorityStatus(store, user.id) === "ACTIVE";
-  const isPriorityMember = isPriorityEventMember(store, user.id, id);
   const canUsePriority = isActive || isPriorityMember;
   const state: EventRegistrationState["state"] =
     event.status !== "PUBLISHED" || Date.parse(event.startsAt) <= Date.now()

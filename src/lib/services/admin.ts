@@ -7,6 +7,7 @@ import {
 import type { Event } from "@/lib/validators/event";
 import { getPrisma } from "@/lib/prisma";
 import { ServiceError, USE_MOCKS } from "./errors";
+import { getArchivedEvents } from "./events";
 import { z } from "zod";
 import { toAppRole, type Role } from "@/lib/roles";
 
@@ -35,8 +36,15 @@ export async function getAdminModeration() {
   if (!USE_MOCKS) {
     const [events, categories, organizers] = await Promise.all([
       getPrisma().event.findMany({
-        where: { status: { in: ["PENDING", "PUBLISHED", "REJECTED"] } },
-        include: { _count: { select: { registrations: true } } },
+        where: {
+          archivedAt: null,
+          status: { in: ["PENDING", "PUBLISHED", "REJECTED"] },
+        },
+        include: {
+          _count: {
+            select: { registrations: { where: { status: "CONFIRMED" } } },
+          },
+        },
         orderBy: [{ startsAt: "asc" }, { createdAt: "desc" }],
       }),
       getPrisma().category.findMany({ orderBy: { name: "asc" } }),
@@ -120,8 +128,14 @@ export async function moderateEvent(
       "Укажите причину отказа длиной от 5 до 1000 символов.",
     );
   }
+  // Как и в демо-режиме: прошедшее событие опубликовать нельзя.
   const result = await getPrisma().event.updateMany({
-    where: { id: eventId, status: "PENDING" },
+    where: {
+      id: eventId,
+      status: "PENDING",
+      archivedAt: null,
+      ...(decision === "approve" ? { startsAt: { gt: new Date() } } : {}),
+    },
     data:
       decision === "approve"
         ? { status: "PUBLISHED", rejectionReason: null }
@@ -130,14 +144,26 @@ export async function moderateEvent(
   if (result.count === 0) {
     const event = await getPrisma().event.findUnique({
       where: { id: eventId },
-      select: { id: true },
+      select: { id: true, status: true, archivedAt: true, startsAt: true },
     });
     if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
+    if (event.archivedAt)
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Событие находится в архиве. Сначала восстановите его.",
+      );
+    if (event.status === "PENDING" && event.startsAt <= new Date())
+      throw new ServiceError("EVENT_PAST", "Нельзя опубликовать прошедшее событие.");
     throw new ServiceError(
       "MODERATION_CLOSED",
       "Это событие уже обработано.",
     );
   }
+  return {
+    id: eventId,
+    status: decision === "approve" ? ("PUBLISHED" as const) : ("REJECTED" as const),
+    rejectionReason: decision === "reject" ? reason.trim() : null,
+  };
 }
 
 export async function getAdminUsers() {
@@ -250,7 +276,9 @@ export async function updateAdminUser(actor: {
     { isolationLevel: "Serializable" },
   );
 
-  recordCampusUserAudit(actor, updated.user, [
+  // Журнал изменений пока есть только в демо-хранилище (см. getAdminAuditLog);
+  // в режиме базы его запись упала бы уже после сохранения роли.
+  if (USE_MOCKS) recordCampusUserAudit(actor, updated.user, [
     ...(updated.roleChanged
       ? [
           {
@@ -291,6 +319,9 @@ export async function updateAdminUser(actor: {
 
 export async function getAdminAuditLog(): Promise<Array<CampusAuditEntry & { actorRole?: string | null }>> {
   await requireRole("ADMIN");
+  // Журнал изменений пока хранится только в демо-хранилище: таблица
+  // для него появится отдельной миграцией. В режиме базы журнал пуст.
+  if (!USE_MOCKS) return [];
   const store = readStore();
   return store.auditLog.slice(-200).reverse().map((entry) => ({
     ...entry,
@@ -300,6 +331,28 @@ export async function getAdminAuditLog(): Promise<Array<CampusAuditEntry & { act
 
 export async function getAdminArchivedEvents() {
   await requireRole("ADMIN");
+  if (!USE_MOCKS) {
+    const events = await getArchivedEvents();
+    const [categories, organizers] = await Promise.all([
+      getPrisma().category.findMany({
+        where: { id: { in: events.map((event) => event.categoryId) } },
+        select: { id: true, name: true },
+      }),
+      getPrisma().user.findMany({
+        where: { id: { in: events.map((event) => event.organizerId) } },
+        select: { id: true, name: true },
+      }),
+    ]);
+    return events.map((event) => ({
+      ...event,
+      categoryName:
+        categories.find((category) => category.id === event.categoryId)
+          ?.name ?? "Без категории",
+      organizerName:
+        organizers.find((user) => user.id === event.organizerId)?.name ??
+        "Неизвестный организатор",
+    }));
+  }
   const store = readStore();
   return store.events
     .filter((event) => Boolean(event.archivedAt))
@@ -322,11 +375,11 @@ export async function getAdminOverview() {
     const [totalEvents, publishedEvents, totalRegistrations, totalUsers, events] =
       await Promise.all([
         prisma.event.count(),
-        prisma.event.count({ where: { status: "PUBLISHED" } }),
+        prisma.event.count({ where: { status: "PUBLISHED", archivedAt: null } }),
         prisma.registration.count({ where: { status: "CONFIRMED" } }),
         prisma.user.count(),
         prisma.event.findMany({
-          where: { status: "PUBLISHED" },
+          where: { status: "PUBLISHED", archivedAt: null },
           select: { id: true, title: true },
         }),
       ]);

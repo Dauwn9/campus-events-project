@@ -28,9 +28,12 @@ enum PriorityStatus {
 }
 
 enum EventStatus {
+  DRAFT
   PENDING
   PUBLISHED
   REJECTED
+  CANCELLED
+  FINISHED
 }
 
 enum RegistrationStatus {
@@ -145,6 +148,8 @@ model Event {
 
   status          EventStatus @default(PENDING)
   rejectionReason String?
+  // Архив скрывает событие из афиши, но сохраняет регистрации и историю.
+  archivedAt      DateTime?
 
   // Приоритетная запись: до registrationOpensAt + priorityWindowHours
   // записываются только ACTIVE и участники из EventPriorityMember.

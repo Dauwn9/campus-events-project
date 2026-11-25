@@ -12,16 +12,18 @@ import {
   updateProfileName,
 } from "@/lib/profile";
 import {
-  saveCampusEvent,
-  changeEventStatus,
   registerStudent,
   cancelStudentRegistration,
-  toggleStudentFavorite,
   checkInParticipant,
-  archiveAdminEvent,
-  restoreAdminEvent,
 } from "@/lib/services/campus";
-import { getEventById } from "@/lib/services/events";
+import {
+  archiveEvent,
+  changeEvent,
+  getEventById,
+  restoreEvent,
+  saveEvent,
+} from "@/lib/services/events";
+import { toggleFavorite } from "@/lib/services/favorites";
 import { deleteCommentForUser } from "@/lib/services/comments";
 import { ServiceError } from "@/lib/services/errors";
 import { moderateEvent, updateAdminUser } from "@/lib/services/admin";
@@ -120,7 +122,9 @@ export async function saveEventAction(
     return { error: "Выберите файл изображения для обложки." };
 
   let coverImageUrl: string | undefined;
-  if (coverEntry && typeof coverEntry !== "string" && (coverEntry.size > 0 || coverEntry.name)) {
+  // Пустое поле файла приходит как File нулевого размера (иногда с именем
+  // вроде "blob") — это значит «обложку не выбирали», а не ошибка.
+  if (coverEntry && typeof coverEntry !== "string" && coverEntry.size > 0) {
     try {
       coverImageUrl = await encodeEventCover(coverEntry);
     } catch (error) {
@@ -131,7 +135,7 @@ export async function saveEventAction(
 
   let id: string;
   try {
-    const event = saveCampusEvent(
+    const event = await saveEvent(
       user,
       {
         title: text(form, "title"),
@@ -201,10 +205,9 @@ export async function eventOperationAction(
         validatedOperation,
         text(form, "reason"),
       );
-    } else if (validatedOperation === "archive") archiveAdminEvent(actor, id);
-    else if (validatedOperation === "restore") restoreAdminEvent(actor, id);
-    else
-      changeEventStatus(actor, id, validatedOperation, text(form, "reason"));
+    } else if (validatedOperation === "archive") await archiveEvent(actor, id);
+    else if (validatedOperation === "restore") await restoreEvent(actor, id);
+    else await changeEvent(actor, id, validatedOperation);
     refresh();
     return { message: "Изменения сохранены." };
   } catch (error) {
@@ -249,9 +252,9 @@ export async function favoriteAction(
   _state: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
-  const user = await requireRole("STUDENT");
+  await requireRole("STUDENT");
   try {
-    const result = toggleStudentFavorite(user, id);
+    const result = await toggleFavorite(id);
     refresh();
     return {
       message: result.isFavorite

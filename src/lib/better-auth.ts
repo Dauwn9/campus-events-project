@@ -9,9 +9,20 @@ if (!secret) {
   throw new Error("BETTER_AUTH_SECRET не задана");
 }
 
+// На preview-деплоях Vercel у каждой сборки свой адрес, поэтому, если
+// BETTER_AUTH_URL не задан, берём адрес из системных переменных Vercel.
+const vercelOrigins = [
+  process.env.VERCEL_BRANCH_URL,
+  process.env.VERCEL_URL,
+]
+  .filter((host): host is string => Boolean(host))
+  .map((host) => `https://${host}`);
+
 export const auth = betterAuth({
   appName: "CampusEvents",
-  baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+  baseURL:
+    process.env.BETTER_AUTH_URL ?? vercelOrigins[0] ?? "http://localhost:3000",
+  trustedOrigins: vercelOrigins,
   secret,
   database: prismaAdapter(getPrisma(), { provider: "postgresql" }),
   emailAndPassword: {

@@ -247,8 +247,9 @@ export async function archiveCategory(id: string) {
           "Категория уже находится в архиве.",
         );
       }
+      // Как и в демо-режиме, архивные события не мешают архивировать категорию.
       const eventCount = await transaction.event.count({
-        where: { categoryId: id },
+        where: { categoryId: id, archivedAt: null },
       });
       if (eventCount > 0) {
         throw new ServiceError(

@@ -1,17 +1,16 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { getEvents } from "@/lib/services/events";
-import { readStore } from "@/lib/services/demo-store";
+import { getOrganizerCheckInCount } from "@/lib/services/organizer";
 import { PageHeading, Stats } from "@/components/workspace/WorkspaceUI";
 import EventTable from "@/components/workspace/EventTable";
 import Icon from "@/components/ui/Icon";
 export default async function OrganizerPage() {
   const user = await requireRole("ORGANIZER");
-    const events = await getEvents({ organizerId: user.id });
-  const ids = new Set(events.map((e) => e.id));
-  const visits = readStore().registrations.filter(
-    (r) => ids.has(r.eventId) && r.checkedInAt,
-  ).length;
+  const [events, visits] = await Promise.all([
+    getEvents({ organizerId: user.id }),
+    getOrganizerCheckInCount(user.id),
+  ]);
   return (
     <>
       <PageHeading
