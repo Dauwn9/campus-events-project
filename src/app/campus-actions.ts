@@ -11,11 +11,11 @@ import {
   changeProfilePassword,
   updateProfileName,
 } from "@/lib/profile";
+import { checkInParticipant } from "@/lib/services/campus";
 import {
-  registerStudent,
-  cancelStudentRegistration,
-  checkInParticipant,
-} from "@/lib/services/campus";
+  cancelRegistration,
+  registerForEvent,
+} from "@/lib/services/registrations";
 import {
   archiveEvent,
   changeEvent,
@@ -219,9 +219,9 @@ export async function registerAction(
   _state: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
-  const user = await requireRole("STUDENT");
+  await requireRole("STUDENT");
   try {
-    const result = registerStudent(user, id);
+    const result = await registerForEvent(id);
     refresh();
     return {
       message:
@@ -238,9 +238,9 @@ export async function cancelRegistrationAction(
   _state: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
-  const user = await requireRole("STUDENT");
+  await requireRole("STUDENT");
   try {
-    cancelStudentRegistration(user, id);
+    await cancelRegistration(id);
     refresh();
     return { message: "Регистрация отменена. Место освобождено." };
   } catch (error) {
