@@ -119,7 +119,7 @@ test("Better Auth actor может работать с mock-событиями �
     name: "Новый студент",
     role: "STUDENT" as const,
   };
-  assert.equal(registerStudent(student, event.id).status, "CONFIRMED");
+  assert.equal((await registerStudent(student, event.id)).status, "CONFIRMED");
   assert.equal((await toggleStudentFavorite(student, event.id)).isFavorite, true);
   assert.equal(
     readStore().users.some((user) => user.id === student.id),
@@ -139,7 +139,7 @@ test("Better Auth actor может работать с mock-событиями �
       new Date().toISOString();
   });
   assert.equal(
-    checkInParticipant(organizer, event.id, registration.shortCode).name,
+    (await checkInParticipant(organizer, event.id, registration.shortCode)).name,
     "Участник",
   );
 });
@@ -186,7 +186,7 @@ test("История события фиксирует конкретное по
 });
 test("Архив скрывает событие с афиши, сохраняет регистрации и позволяет восстановить", async () => {
   const event = await published(10, 2);
-  const registration = registerStudent(student, event.id);
+  const registration = await registerStudent(student, event.id);
   await archiveAdminEvent(admin, event.id);
 
   assert.equal(await getEventById(event.id), null);
@@ -227,18 +227,18 @@ test("Архивная категория не попадает в выбор к
 });
 test("Друзья: запрос нужно принять, друзья видят предстоящие события друг друга", async () => {
   const event = await published(30, 2);
-  registerStudent(second, event.id);
-  const request = sendFriendRequest(student, second.id);
-  assert.equal(getFriendsPageData(student).outgoing.length, 1);
+  await registerStudent(second, event.id);
+  const request = await sendFriendRequest(student, second.id);
+  assert.equal((await getFriendsPageData(student)).outgoing.length, 1);
   assert.equal(
-    getFriendsPageData(student).friendEvents.some(
+    (await getFriendsPageData(student)).friendEvents.some(
       (item) => item.event.id === event.id,
     ),
     false,
   );
-  respondToFriendRequest(second, request.id, true);
+  await respondToFriendRequest(second, request.id, true);
 
-  const page = getFriendsPageData(student);
+  const page = await getFriendsPageData(student);
   assert.equal(page.friends.some((friend) => friend.id === second.id), true);
   assert.equal(
     page.friendEvents.some(
@@ -257,8 +257,8 @@ test("Друзья: запрос нужно принять, друзья вид�
 });
 test("Отмена события сохраняет регистрации и создаёт личные уведомления", async () => {
   const event = await published(30, 2);
-  const firstRegistration = registerStudent(student, event.id);
-  const secondRegistration = registerStudent(second, event.id);
+  const firstRegistration = await registerStudent(student, event.id);
+  const secondRegistration = await registerStudent(second, event.id);
 
   await changeEventStatus(org, event.id, "cancel");
 
@@ -269,28 +269,28 @@ test("Отмена события сохраняет регистрации и �
     assert.equal(saved?.status, "CANCELLED");
     assert.equal(saved?.qrToken, null);
   }
-  const notifications = getMyNotifications(student);
+  const notifications = await getMyNotifications(student);
   assert.equal(notifications.length, 1);
   assert.equal(notifications[0].kind, "EVENT_CANCELLED");
   assert.equal(notifications[0].event?.status, "CANCELLED");
-  markNotificationRead(student, notifications[0].id);
-  assert.ok(getMyNotifications(student)[0].readAt);
+  await markNotificationRead(student, notifications[0].id);
+  assert.ok((await getMyNotifications(student))[0].readAt);
   assert.throws(
     () => markNotificationRead(second, notifications[0].id),
     /не найдено/,
   );
-  assert.equal(getMyNotifications(second)[0].kind, "EVENT_CANCELLED");
+  assert.equal((await getMyNotifications(second))[0].kind, "EVENT_CANCELLED");
 });
 test("Важные изменения опубликованного события уведомляют записанных студентов", async () => {
   const event = await published(30, 2);
-  registerStudent(student, event.id);
+  await registerStudent(student, event.id);
   await saveCampusEvent(
     org,
     { ...event, location: "Новый зал, корпус B" },
     event.id,
   );
 
-  const notification = getMyNotifications(student)[0];
+  const notification = (await getMyNotifications(student))[0];
   assert.equal(notification.kind, "EVENT_UPDATED");
   assert.match(notification.message, /место/);
   assert.equal(notification.event?.location, "Новый зал, корпус B");
@@ -299,7 +299,7 @@ test("Вместимость: параллельные запросы не пр�
   const event = await published();
   const results = await Promise.all(
     [student, second].map((actor) =>
-      Promise.resolve().then(() => registerStudent(actor, event.id)),
+      registerStudent(actor, event.id),
     ),
   );
   assert.equal(results.filter((r) => r.status === "CONFIRMED").length, 1);
@@ -309,7 +309,7 @@ test("Вместимость: параллельные запросы не пр�
     1,
   );
   assert.throws(() => registerStudent(student, event.id), /уже записаны/);
-  cancelStudentRegistration(student, results[0].id);
+  await cancelStudentRegistration(student, results[0].id);
   assert.equal(
     readStore().registrations.find((r) => r.id === results[1].id)?.status,
     "CONFIRMED",
@@ -325,13 +325,13 @@ test("Вместимость: параллельные запросы не пр�
 });
 test("QR: успешный вход, повтор без двойного посещения, чужое событие, неверный код и закрытое окно", async () => {
   const event = await published();
-  const registration = registerStudent(student, event.id);
+  const registration = await registerStudent(student, event.id);
   assert.equal(
-    checkInParticipant(org, event.id, registration.qrToken!).already,
+    (await checkInParticipant(org, event.id, registration.qrToken!)).already,
     false,
   );
   assert.equal(
-    checkInParticipant(org, event.id, registration.shortCode).already,
+    (await checkInParticipant(org, event.id, registration.shortCode!)).already,
     true,
   );
   assert.equal(
@@ -349,7 +349,7 @@ test("QR: успешный вход, повтор без двойного пос
       checkInParticipant(
         { id: "org-1", role: "ORGANIZER" },
         event.id,
-        registration.shortCode,
+        registration.shortCode!,
       ),
     /другому/,
   );
@@ -358,13 +358,13 @@ test("QR: успешный вход, повтор без двойного пос
     /не найдена/,
   );
   const other = await published(200);
-  const otherReg = registerStudent(student, other.id);
+  const otherReg = await registerStudent(student, other.id);
   assert.throws(
-    () => checkInParticipant(org, other.id, registration.shortCode),
+    () => checkInParticipant(org, other.id, registration.shortCode!),
     /не найдена/,
   );
   assert.throws(
-    () => checkInParticipant(org, other.id, otherReg.shortCode),
+    () => checkInParticipant(org, other.id, otherReg.shortCode!),
     /час до начала/,
   );
 });
@@ -377,7 +377,7 @@ test("20 случайных QR-билетов декодируются обра�
       index === 0
         ? student
         : { id: `student-${index}`, role: "STUDENT" as const };
-    const registration = registerStudent(actor, event.id);
+    const registration = await registerStudent(actor, event.id);
     const encoded = await QRCode.toBuffer(
       registration.qrToken!,
       ticketQROptions,
@@ -390,7 +390,7 @@ test("20 случайных QR-билетов декодируются обра�
     );
     assert.equal(decoded, registration.qrToken);
     assert.equal(
-      checkInParticipant(org, registration.eventId, decoded!).already,
+      (await checkInParticipant(org, registration.eventId, decoded!)).already,
       false,
     );
   }
@@ -444,7 +444,7 @@ test("Профиль, роли и блокировка сохраняются в
     passwordConfirmation: "Different2028!",
   });
   assert.equal(mismatchedPassword.success, false);
-  assert.equal(updateStudentGroup(admin, actor.id, "IT-26").group, "IT-26");
+  assert.equal((await updateStudentGroup(admin, actor.id, "IT-26")).group, "IT-26");
   assert.throws(
     () => updateStudentGroup(admin, actor.id, "G".repeat(41)),
     /Учебная группа/,
@@ -458,7 +458,7 @@ test("Профиль, роли и блокировка сохраняются в
     () => updateCampusUser(admin, "admin-demo", "STUDENT", true),
     /закреплены/,
   );
-  const roleUpdate = updateCampusUser(admin, actor.id, "ORGANIZER", true);
+  const roleUpdate = await updateCampusUser(admin, actor.id, "ORGANIZER", true);
   assert.equal(roleUpdate.roleChanged, true);
   assert.throws(
     () => registerStudent({ ...actor, role: "ORGANIZER" }, event.id),
@@ -508,18 +508,18 @@ test("Приоритетное окно учитывает активный ст
       });
     }
   });
-  assert.equal(registerStudent(student, event.id).status, "CONFIRMED");
+  assert.equal((await registerStudent(student, event.id)).status, "CONFIRMED");
   assert.throws(() => registerStudent(plainStudent, event.id), /активных студентов/);
   changeStore((store) => {
     const normal = store.users.find((user) => user.id === plainStudent.id)!;
     normal.priorityStatus = "ACTIVE";
   });
-  assert.equal(registerStudent(plainStudent, event.id).status, "CONFIRMED");
+  assert.equal((await registerStudent(plainStudent, event.id)).status, "CONFIRMED");
 });
 test("Серверные проверки дат, вместимости и приоритетной записи", async () => {
   await assert.rejects(() => makeEvent(-10), /будущем/);
   const event = await published();
-  registerStudent(student, event.id);
+  await registerStudent(student, event.id);
   await assert.rejects(
     () => changeEventStatus(org, event.id, "delete"),
     /Есть участники/,

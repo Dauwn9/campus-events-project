@@ -2,16 +2,25 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { getEvents } from "@/lib/services/events";
 import { readStore } from "@/lib/services/demo-store";
+import { getPrisma } from "@/lib/prisma";
+import { USE_MOCKS } from "@/lib/services/errors";
 import { PageHeading, Stats } from "@/components/workspace/WorkspaceUI";
 import EventTable from "@/components/workspace/EventTable";
 import Icon from "@/components/ui/Icon";
 export default async function OrganizerPage() {
   const user = await requireRole("ORGANIZER");
-    const events = await getEvents({ organizerId: user.id });
+  const events = await getEvents({ organizerId: user.id });
   const ids = new Set(events.map((e) => e.id));
-  const visits = readStore().registrations.filter(
-    (r) => ids.has(r.eventId) && r.checkedInAt,
-  ).length;
+  const visits = USE_MOCKS
+    ? readStore().registrations.filter(
+        (registration) => ids.has(registration.eventId) && registration.checkedInAt,
+      ).length
+    : await getPrisma().registration.count({
+        where: {
+          eventId: { in: [...ids] },
+          checkedInAt: { not: null },
+        },
+      });
   return (
     <>
       <PageHeading

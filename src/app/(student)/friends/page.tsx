@@ -58,7 +58,7 @@ export default async function FriendsPage({
   }>;
 }) {
   const [student, query] = await Promise.all([requireRole("STUDENT"), searchParams]);
-  const data = getFriendsPageData(student, query.q ?? "");
+  const data = await getFriendsPageData(student, query.q ?? "");
 
   return (
     <div className="space-y-6">

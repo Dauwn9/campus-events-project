@@ -14,7 +14,7 @@ export default async function NotificationsPage({
     requireRole("STUDENT"),
     searchParams,
   ]);
-  const notifications = getMyNotifications(student);
+  const notifications = await getMyNotifications(student);
   const unreadCount = notifications.filter((item) => !item.readAt).length;
 
   return (

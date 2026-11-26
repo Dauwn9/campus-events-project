@@ -1,6 +1,7 @@
 import { apiError, requireApiRole } from "@/lib/api-response";
 import { readStore } from "@/lib/services/demo-store";
-import { ServiceError } from "@/lib/services/errors";
+import { ServiceError, USE_MOCKS } from "@/lib/services/errors";
+import { getPrisma } from "@/lib/prisma";
 
 export async function GET(
   _request: Request,
@@ -9,8 +10,12 @@ export async function GET(
   try {
     const actor = await requireApiRole("ORGANIZER", "ADMIN");
     const { id } = await params;
-    const store = readStore();
-    const event = store.events.find((item) => item.id === id);
+    const event = USE_MOCKS
+      ? readStore().events.find((item) => item.id === id)
+      : await getPrisma().event.findUnique({
+          where: { id },
+          select: { id: true, organizerId: true },
+        });
     if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
     if (actor.role !== "ADMIN" && event.organizerId !== actor.id) {
       throw new ServiceError(
@@ -21,23 +26,37 @@ export async function GET(
 
     const cell = (value: string) =>
       `"${(/^[=+@\-\t\r]/.test(value) ? `'${value}` : value).replaceAll('"', '""')}"`;
-    const rows = store.registrations
-      .filter((registration) => registration.eventId === id)
-      .map((registration) => {
-        const user = store.users.find(
-          (item) => item.id === registration.userId,
+    const rows = USE_MOCKS
+      ? (() => {
+          const store = readStore();
+          return store.registrations
+            .filter((registration) => registration.eventId === id)
+            .map((registration) => {
+              const person = store.users.find((item) => item.id === registration.userId);
+              return [
+                person?.name ?? "Участник",
+                person?.email ?? "",
+                person?.group ?? "",
+                registration.status,
+                registration.checkedInAt ?? "",
+              ].map(cell).join(";");
+            });
+        })()
+      : await getPrisma().registration.findMany({
+          where: { eventId: id },
+          include: { user: { select: { name: true, email: true, group: true } } },
+          orderBy: { createdAt: "asc" },
+        }).then((registrations) =>
+          registrations.map((registration) =>
+            [
+              registration.user.name,
+              registration.user.email,
+              registration.user.group ?? "",
+              registration.status,
+              registration.checkedInAt?.toISOString() ?? "",
+            ].map(cell).join(";"),
+          ),
         );
-        // TODO: Resolve participant profiles from Better Auth users after registrations migrate.
-        return [
-          user?.name ?? "Участник",
-          user?.email ?? "",
-          user?.group ?? "",
-          registration.status,
-          registration.checkedInAt ?? "",
-        ]
-          .map(cell)
-          .join(";");
-      });
 
     return new Response(
       `\uFEFFИмя;Email;Группа;Статус;Вход\r\n${rows.join("\r\n")}`,

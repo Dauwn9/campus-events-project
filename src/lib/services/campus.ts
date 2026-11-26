@@ -4,6 +4,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { z } from "zod";
+import { headers } from "next/headers";
 import {
   changeStore,
   readStore,
@@ -17,6 +18,7 @@ import {
 import { ServiceError, USE_MOCKS } from "./errors";
 import { getPrisma } from "@/lib/prisma";
 import { EventStatus } from "@/generated/prisma/enums";
+import { Prisma } from "@/generated/prisma/client";
 import { eventInclude, toEventDto } from "./event-prisma";
 import { toggleFavoriteForActor } from "./favorites";
 import { profileInputSchema } from "@/lib/validators/profile";
@@ -43,6 +45,13 @@ export function isCampusUserBlocked(
   if (!user.blockedUntil) return true;
   const expiresAt = Date.parse(user.blockedUntil);
   return !Number.isFinite(expiresAt) || expiresAt > now;
+}
+
+function isPrismaUserBlocked(
+  user: { blocked: boolean; blockedUntil: Date | null },
+  now = new Date(),
+) {
+  return user.blocked && (!user.blockedUntil || user.blockedUntil > now);
 }
 
 function auditValue(value: unknown, store: CampusStore, field: string) {
@@ -98,11 +107,73 @@ function recordAuditChanges(
   store.auditLog = store.auditLog.slice(-1000);
 }
 
+function prismaAuditValue(value: unknown, field: string) {
+  if (value === undefined || value === null || value === "") return "—";
+  if (value instanceof Date) return value.toISOString();
+  if (field === "status") {
+    const labels: Record<string, string> = {
+      DRAFT: "Черновик",
+      PENDING: "На модерации",
+      REJECTED: "Отклонено",
+      PUBLISHED: "Опубликовано",
+      CANCELLED: "Отменено",
+      FINISHED: "Завершено",
+    };
+    return labels[String(value)] ?? String(value);
+  }
+  if (field === "role") {
+    const labels: Record<string, string> = {
+      STUDENT: "Студент",
+      ORGANIZER: "Организатор",
+      ADMIN: "Администратор",
+    };
+    return labels[String(value)] ?? String(value);
+  }
+  if (field === "blocked") return value ? "Заблокирован" : "Активен";
+  return String(value);
+}
+
+async function recordPrismaAudit(
+  actor: Actor,
+  entity: Pick<CampusAuditEntry, "entityType" | "entityId" | "entityLabel">,
+  changes: { field: string; oldValue: unknown; newValue: unknown }[],
+) {
+  if (!changes.length) return;
+  const actorName =
+    actor.name ??
+    (await getPrisma().user.findUnique({
+      where: { id: actor.id },
+      select: { name: true },
+    }))?.name ??
+    actor.id;
+  await getPrisma().auditEntry.createMany({
+    data: changes.map((change) => ({
+      actorId: actor.id,
+      actorName,
+      ...entity,
+      field: change.field,
+      oldValue: prismaAuditValue(change.oldValue, change.field),
+      newValue: prismaAuditValue(change.newValue, change.field),
+    })),
+  });
+}
+
 export function recordCampusUserAudit(
-  actor: Actor & { name: string },
+  actor: Actor,
   user: Pick<CampusUser, "id" | "name" | "email">,
   changes: { field: string; oldValue: unknown; newValue: unknown }[],
 ) {
+  if (!USE_MOCKS) {
+    return recordPrismaAudit(
+      actor,
+      {
+        entityType: "USER",
+        entityId: user.id,
+        entityLabel: `${user.name} (${user.email})`,
+      },
+      changes,
+    );
+  }
   changeStore((store) =>
     recordAuditChanges(
       store,
@@ -243,6 +314,16 @@ export async function archiveAdminEvent(actor: Actor, eventId: string) {
         [{ field: "archivedAt", oldValue: null, newValue: event.archivedAt }],
       ),
     );
+  } else {
+    await recordPrismaAudit(
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: event.id,
+        entityLabel: `${event.title} (${event.id})`,
+      },
+      [{ field: "archivedAt", oldValue: null, newValue: event.archivedAt }],
+    );
   }
   return event;
 }
@@ -290,6 +371,16 @@ export async function restoreAdminEvent(actor: Actor, eventId: string) {
         },
         [{ field: "archivedAt", oldValue: "В архиве", newValue: null }],
       ),
+    );
+  } else {
+    await recordPrismaAudit(
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: event.id,
+        entityLabel: `${event.title} (${event.id})`,
+      },
+      [{ field: "archivedAt", oldValue: "В архиве", newValue: null }],
     );
   }
   return event;
@@ -466,6 +557,65 @@ export async function saveCampusEvent(actor: Actor, input: EventInput, id?: stri
         }),
       );
     });
+  } else {
+    const changedDetails = result.previous?.status === "PUBLISHED"
+      ? [
+          result.previous.title !== result.event.title ? "название" : null,
+          result.previous.startsAt !== result.event.startsAt ||
+          result.previous.endsAt !== result.event.endsAt
+            ? "дату и время"
+            : null,
+          result.previous.location !== result.event.location ? "место" : null,
+        ].filter((detail): detail is string => detail !== null)
+      : [];
+    if (changedDetails.length > 0) {
+      const registrations = await getPrisma().registration.findMany({
+        where: {
+          eventId: result.event.id,
+          status: { in: ["CONFIRMED", "WAITLIST"] },
+        },
+        select: { userId: true },
+      });
+      if (registrations.length) {
+        await getPrisma().notification.createMany({
+          data: registrations.map(({ userId }) => ({
+            userId,
+            eventId: result.event.id,
+            kind: "EVENT_UPDATED",
+            title: `Событие изменилось: ${result.event.title}`,
+            message: `Организатор изменил ${changedDetails.join(", ")}. Проверьте обновлённую информацию на странице события.`,
+          })),
+        });
+      }
+    }
+    const auditFields = [
+      "title",
+      "description",
+      "location",
+      "startsAt",
+      "endsAt",
+      "capacity",
+      "categoryId",
+      "registrationOpensAt",
+      "priorityWindowHours",
+      "status",
+      "rejectionReason",
+    ] as const;
+    await recordPrismaAudit(
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: result.event.id,
+        entityLabel: `${result.event.title} (${result.event.id})`,
+      },
+      auditFields.flatMap((field) => {
+        const oldValue = result.previous?.[field];
+        const newValue = result.event[field];
+        return result.previous && oldValue === newValue
+          ? []
+          : [{ field, oldValue, newValue }];
+      }),
+    );
   }
 
   return result.event;
@@ -578,6 +728,32 @@ export async function changeEventStatus(
       data: { status: EventStatus.CANCELLED },
       include: eventInclude,
     });
+    const registrations = await transaction.registration.findMany({
+      where: {
+        eventId,
+        status: { in: ["CONFIRMED", "WAITLIST"] },
+      },
+      select: { userId: true },
+    });
+    if (registrations.length) {
+      await transaction.notification.createMany({
+        data: registrations.map(({ userId }) => ({
+          userId,
+          eventId,
+          kind: "EVENT_CANCELLED",
+          title: `Событие отменено: ${record.title}`,
+          message: "Организатор отменил событие. Ваша регистрация сохранена в истории.",
+        })),
+      });
+    }
+    await transaction.registration.updateMany({
+      where: {
+        eventId,
+        status: { in: ["CONFIRMED", "WAITLIST"] },
+        checkedInAt: null,
+      },
+      data: { status: "CANCELLED", qrToken: null },
+    });
     return { previous, event: toEventDto(updated), deleted: false };
   });
 
@@ -644,11 +820,118 @@ export async function changeEventStatus(
         changes,
       );
     });
+  } else {
+    const changes = result.deleted
+      ? [{ field: "deleted", oldValue: result.previous.title, newValue: "Удалено" }]
+      : [
+          ...(result.previous.status !== result.event?.status
+            ? [{
+                field: "status",
+                oldValue: result.previous.status,
+                newValue: result.event?.status,
+              }]
+            : []),
+          ...(result.previous.rejectionReason !== result.event?.rejectionReason
+            ? [{
+                field: "rejectionReason",
+                oldValue: result.previous.rejectionReason,
+                newValue: result.event?.rejectionReason,
+              }]
+            : []),
+        ];
+    await recordPrismaAudit(
+      actor,
+      {
+        entityType: "EVENT",
+        entityId: result.previous.id,
+        entityLabel: `${result.previous.title} (${result.previous.id})`,
+      },
+      changes,
+    );
   }
 
   return result.event ?? result.previous;
 }
+async function registerStudentWithPrisma(actor: Actor, eventId: string) {
+  assertRole(actor, ["STUDENT"]);
+  const prisma = getPrisma();
+  return prisma.$transaction(async (transaction) => {
+    const event = await transaction.event.findFirst({
+      where: { id: eventId, archivedAt: null, status: "PUBLISHED" },
+    });
+    if (!event)
+      throw new ServiceError("NOT_FOUND", "Событие недоступно для записи.");
+    const now = new Date();
+    if (event.startsAt <= now)
+      throw new ServiceError("EVENT_PAST", "Запись закрыта: событие уже началось.");
+    const current = await transaction.registration.findUnique({
+      where: { userId_eventId: { userId: actor.id, eventId } },
+    });
+    if (current && current.status !== "CANCELLED")
+      throw new ServiceError("ALREADY_REGISTERED", "Вы уже записаны на это событие.");
+    if (event.registrationOpensAt && event.registrationOpensAt > now)
+      throw new ServiceError("NOT_OPEN_YET", "Запись ещё не открылась.");
+
+    const [user, visits, priorityMember, confirmedCount] = await Promise.all([
+      transaction.user.findUnique({
+        where: { id: actor.id },
+        select: { priorityStatus: true },
+      }),
+      transaction.registration.count({
+        where: { userId: actor.id, checkedInAt: { not: null } },
+      }),
+      transaction.eventPriorityMember.findUnique({
+        where: { eventId_userId: { eventId, userId: actor.id } },
+        select: { userId: true },
+      }),
+      transaction.registration.count({
+        where: { eventId, status: "CONFIRMED" },
+      }),
+    ]);
+    const priorityDeadline =
+      event.registrationOpensAt && event.priorityWindowHours
+        ? event.registrationOpensAt.getTime() + event.priorityWindowHours * 3600000
+        : null;
+    if (
+      priorityDeadline &&
+      now.getTime() < priorityDeadline &&
+      user?.priorityStatus !== "ACTIVE" &&
+      visits < 3 &&
+      !priorityMember
+    )
+      throw new ServiceError(
+        "NOT_OPEN_YET",
+        "Пока действует приоритетная запись для активных студентов и участников списка организатора.",
+      );
+
+    const status = confirmedCount < event.capacity ? "CONFIRMED" : "WAITLIST";
+    const registration = current
+      ? await transaction.registration.update({
+          where: { id: current.id },
+          data: {
+            status,
+            createdAt: now,
+            qrToken: status === "CONFIRMED" ? randomBytes(32).toString("base64url") : null,
+            shortCode: randomBytes(5).toString("hex").toUpperCase(),
+            checkedInAt: null,
+            checkedInById: null,
+          },
+        })
+      : await transaction.registration.create({
+          data: {
+            userId: actor.id,
+            eventId,
+            status,
+            qrToken: status === "CONFIRMED" ? randomBytes(32).toString("base64url") : null,
+            shortCode: randomBytes(5).toString("hex").toUpperCase(),
+          },
+        });
+    return registration;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
 export function registerStudent(actor: Actor, eventId: string) {
+  if (!USE_MOCKS) return registerStudentWithPrisma(actor, eventId);
   return changeStore((store) => {
     assertRole(actor, ["STUDENT"], store);
     const event = store.events.find((e) => e.id === eventId);
@@ -718,10 +1001,63 @@ export function registerStudent(actor: Actor, eventId: string) {
     return registration;
   });
 }
+async function cancelStudentRegistrationWithPrisma(
+  actor: Actor,
+  registrationId: string,
+) {
+  assertRole(actor, ["STUDENT"]);
+  return getPrisma().$transaction(async (transaction) => {
+    const registration = await transaction.registration.findFirst({
+      where: { id: registrationId, userId: actor.id },
+      include: { event: true },
+    });
+    if (!registration)
+      throw new ServiceError("NOT_FOUND", "Ваша регистрация не найдена.");
+    if (registration.checkedInAt)
+      throw new ServiceError("FORBIDDEN", "Вход уже отмечен. Отменить посещение нельзя.");
+    if (registration.event.startsAt <= new Date())
+      throw new ServiceError("EVENT_PAST", "После начала события запись нельзя отменить.");
+    if (registration.status === "CANCELLED") return registration;
+
+    const cancelled = await transaction.registration.update({
+      where: { id: registration.id },
+      data: { status: "CANCELLED", qrToken: null },
+    });
+    if (registration.status === "CONFIRMED") {
+      const now = new Date();
+      const next = await transaction.registration.findFirst({
+        where: {
+          eventId: registration.eventId,
+          status: "WAITLIST",
+          user: {
+            OR: [
+              { blocked: false },
+              { blocked: true, blockedUntil: { lte: now } },
+            ],
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      if (next) {
+        await transaction.registration.update({
+          where: { id: next.id },
+          data: {
+            status: "CONFIRMED",
+            qrToken: randomBytes(32).toString("base64url"),
+          },
+        });
+      }
+    }
+    return cancelled;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
 export function cancelStudentRegistration(
   actor: Actor,
   registrationId: string,
 ) {
+  if (!USE_MOCKS)
+    return cancelStudentRegistrationWithPrisma(actor, registrationId);
   return changeStore((store) => {
     assertRole(actor, ["STUDENT"], store);
     const registration = store.registrations.find(
@@ -764,11 +1100,85 @@ export function cancelStudentRegistration(
     return registration;
   });
 }
+async function checkInParticipantWithPrisma(
+  actor: Actor,
+  eventId: string,
+  rawCode: string,
+) {
+  assertRole(actor, ["ORGANIZER", "ADMIN"]);
+  const parsedCode = z.string().trim().min(4).max(500).safeParse(rawCode);
+  if (!parsedCode.success)
+    throw new ServiceError("NOT_FOUND", "Код не распознан.");
+  const prisma = getPrisma();
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: {
+      id: true,
+      organizerId: true,
+      status: true,
+      archivedAt: true,
+      startsAt: true,
+      endsAt: true,
+    },
+  });
+  if (!event) throw new ServiceError("NOT_FOUND", "Событие не найдено.");
+  if (actor.role !== "ADMIN" && event.organizerId !== actor.id)
+    throw new ServiceError("FORBIDDEN", "Это событие принадлежит другому организатору.");
+  if (event.archivedAt || event.status !== "PUBLISHED")
+    throw new ServiceError("FORBIDDEN", "Вход доступен только на опубликованное событие.");
+
+  const code = parsedCode.data;
+  const registration = await prisma.registration.findFirst({
+    where: {
+      eventId,
+      status: "CONFIRMED",
+      OR: [{ shortCode: code.toUpperCase() }, { qrToken: code }],
+    },
+    include: { user: { select: { name: true, blocked: true, blockedUntil: true } } },
+  });
+  if (!registration)
+    throw new ServiceError("NOT_FOUND", "Запись не найдена на это событие.");
+  if (
+    registration.user.blocked &&
+    (!registration.user.blockedUntil || registration.user.blockedUntil > new Date())
+  )
+    throw new ServiceError("FORBIDDEN", "Участник заблокирован.");
+  if (registration.checkedInAt)
+    return {
+      already: true,
+      name: registration.user.name,
+      at: registration.checkedInAt.toISOString(),
+    };
+  const now = new Date();
+  if (now.getTime() < event.startsAt.getTime() - 3600000)
+    throw new ServiceError("NOT_OPEN_YET", "Вход ещё не открыт: за час до начала события.");
+  if (now > event.endsAt)
+    throw new ServiceError("NOT_OPEN_YET", "Вход уже закрыт.");
+  const updated = await prisma.registration.updateMany({
+    where: { id: registration.id, checkedInAt: null },
+    data: { checkedInAt: now, checkedInById: actor.id },
+  });
+  if (updated.count === 0) {
+    const checkedIn = await prisma.registration.findUniqueOrThrow({
+      where: { id: registration.id },
+      select: { checkedInAt: true },
+    });
+    return {
+      already: true,
+      name: registration.user.name,
+      at: checkedIn.checkedInAt!.toISOString(),
+    };
+  }
+  return { already: false, name: registration.user.name, at: now.toISOString() };
+}
+
 export function checkInParticipant(
   actor: Actor,
   eventId: string,
   rawCode: string,
 ) {
+  if (!USE_MOCKS)
+    return checkInParticipantWithPrisma(actor, eventId, rawCode);
   return changeStore((store) => {
     const event = ownedEvent(store, actor, eventId);
     if (event.archivedAt || event.status !== "PUBLISHED")
@@ -834,6 +1244,77 @@ export function updateCampusUser(
   blocked: boolean,
   banDuration = "permanent",
 ) {
+  if (!USE_MOCKS) {
+    assertRole(actor, ["ADMIN"]);
+    const validated = z.enum(["STUDENT", "ORGANIZER", "ADMIN"]).parse(role);
+    const duration = z.enum(["keep", "1d", "7d", "30d", "permanent"]).parse(banDuration);
+    return (async () => {
+      const prisma = getPrisma();
+      const updated = await prisma.$transaction(async (transaction) => {
+        const user = await transaction.user.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            blocked: true,
+            blockedUntil: true,
+          },
+        });
+        if (!user) throw new ServiceError("NOT_FOUND", "Пользователь не найден.");
+        if (user.id === actor.id)
+          throw new ServiceError("FORBIDDEN", "Нельзя изменить собственные права.");
+        if (
+          user.role === "ADMIN" &&
+          validated !== "ADMIN" &&
+          (await transaction.user.count({ where: { role: "ADMIN" } })) <= 1
+        )
+          throw new ServiceError("FORBIDDEN", "Нельзя понизить последнего администратора.");
+        const wasBlocked = isPrismaUserBlocked(user);
+        let blockedUntil = user.blockedUntil;
+        if (!blocked) blockedUntil = null;
+        else if (duration !== "keep") {
+          blockedUntil =
+            duration === "permanent"
+              ? null
+              : new Date(Date.now() + Number.parseInt(duration, 10) * 86400000);
+        } else if (!wasBlocked) {
+          throw new ServiceError("FORBIDDEN", "Для новой блокировки выберите срок.");
+        }
+        const saved = await transaction.user.update({
+          where: { id },
+          data: { role: validated, blocked, blockedUntil },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            blocked: true,
+            blockedUntil: true,
+          },
+        });
+        return { user: saved, wasBlocked, oldRole: user.role, oldBlockedUntil: user.blockedUntil };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      await recordCampusUserAudit(actor, updated.user, [
+        ...(updated.oldRole !== updated.user.role
+          ? [{ field: "role", oldValue: updated.oldRole, newValue: updated.user.role }]
+          : []),
+        ...(updated.wasBlocked !== isPrismaUserBlocked(updated.user)
+          ? [{ field: "blocked", oldValue: updated.wasBlocked, newValue: isPrismaUserBlocked(updated.user) }]
+          : []),
+        ...(updated.oldBlockedUntil?.getTime() !== updated.user.blockedUntil?.getTime()
+          ? [{ field: "blockedUntil", oldValue: updated.oldBlockedUntil, newValue: updated.user.blockedUntil }]
+          : []),
+      ]);
+      return {
+        id: updated.user.id,
+        role: updated.user.role,
+        blocked: isPrismaUserBlocked(updated.user),
+        roleChanged: updated.oldRole !== updated.user.role,
+      };
+    })();
+  }
   return changeStore((store) => {
     assertRole(actor, ["ADMIN"], store);
     const user = store.users.find((u) => u.id === id);
@@ -919,6 +1400,27 @@ export function updateStudentProfile(
     passwordConfirmation?: string;
   },
 ) {
+  if (!USE_MOCKS) {
+    assertRole(actor, ["STUDENT"]);
+    const parsed = profileInputSchema.parse({
+      name: input.name,
+      currentPassword: input.currentPassword ?? "",
+      password: input.password ?? "",
+      passwordConfirmation: input.passwordConfirmation ?? "",
+    });
+    return (async () => {
+      const requestHeaders = new Headers(await headers());
+      const { updateProfileName, changeProfilePassword } = await import("@/lib/profile");
+      await updateProfileName(requestHeaders, parsed.name);
+      if (parsed.password) {
+        await changeProfilePassword(
+          requestHeaders,
+          parsed.currentPassword ?? "",
+          parsed.password,
+        );
+      }
+    })();
+  }
   return changeStore((store) => {
     assertRole(actor, ["STUDENT"], store);
     const user = store.users.find((item) => item.id === actor.id);
@@ -943,6 +1445,25 @@ export function updateStudentProfile(
   });
 }
 export function updateStudentGroup(actor: Actor, id: string, group: unknown) {
+  if (!USE_MOCKS) {
+    assertRole(actor, ["ADMIN"]);
+    const parsedGroup = studentGroupSchema.parse(group);
+    return (async () => {
+      const updated = await getPrisma().user.updateMany({
+        where: { id, role: "STUDENT" },
+        data: { group: parsedGroup },
+      });
+      if (!updated.count) {
+        const user = await getPrisma().user.findUnique({
+          where: { id },
+          select: { id: true },
+        });
+        if (!user) throw new ServiceError("NOT_FOUND", "Пользователь не найден.");
+        throw new ServiceError("FORBIDDEN", "Учебную группу можно изменить только студенту.");
+      }
+      return { id, group: parsedGroup };
+    })();
+  }
   return changeStore((store) => {
     assertRole(actor, ["ADMIN"], store);
     const user = store.users.find((item) => item.id === id);

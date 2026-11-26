@@ -26,7 +26,7 @@ function redirectOnServiceError(error: unknown, path: string): never {
 export async function sendFriendRequestAction(formData: FormData) {
   const student = await requireRole("STUDENT");
   try {
-    sendFriendRequest(student, readId(formData, "studentId"));
+    await sendFriendRequest(student, readId(formData, "studentId"));
   } catch (error) {
     redirectOnServiceError(error, "/friends");
   }
@@ -40,7 +40,7 @@ export async function respondToFriendRequestAction(formData: FormData) {
   const decision = z.enum(["accept", "decline"]).parse(formData.get("decision"));
   const accept = decision === "accept";
   try {
-    respondToFriendRequest(student, friendshipId, accept);
+    await respondToFriendRequest(student, friendshipId, accept);
   } catch (error) {
     redirectOnServiceError(error, "/friends");
   }
@@ -51,7 +51,7 @@ export async function respondToFriendRequestAction(formData: FormData) {
 export async function removeFriendAction(formData: FormData) {
   const student = await requireRole("STUDENT");
   try {
-    removeFriend(student, readId(formData, "studentId"));
+    await removeFriend(student, readId(formData, "studentId"));
   } catch (error) {
     redirectOnServiceError(error, "/friends");
   }
@@ -62,7 +62,7 @@ export async function removeFriendAction(formData: FormData) {
 export async function markNotificationReadAction(formData: FormData) {
   const student = await requireRole("STUDENT");
   try {
-    markNotificationRead(student, readId(formData, "notificationId"));
+    await markNotificationRead(student, readId(formData, "notificationId"));
   } catch (error) {
     redirectOnServiceError(error, "/notifications");
   }

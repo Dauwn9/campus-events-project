@@ -5,7 +5,9 @@ import {
   type CampusFriendship,
 } from "./demo-store";
 import { assertRole, type Actor } from "./campus";
-import { ServiceError } from "./errors";
+import { ServiceError, USE_MOCKS } from "./errors";
+import { getPrisma } from "@/lib/prisma";
+import { eventInclude, toEventDto } from "./event-prisma";
 
 type FriendState = "NONE" | "OUTGOING" | "INCOMING" | "FRIENDS";
 
@@ -35,8 +37,20 @@ function friendState(
 }
 
 export function getFriendsPageData(actor: Actor, search = "") {
-  const store = readStore();
-  assertRole(actor, ["STUDENT"], store);
+  if (USE_MOCKS) {
+    const store = readStore();
+    assertRole(actor, ["STUDENT"], store);
+    return getMockFriendsPageData(actor, search, store);
+  }
+  assertRole(actor, ["STUDENT"]);
+  return getPrismaFriendsPageData(actor, search);
+}
+
+function getMockFriendsPageData(
+  actor: Actor,
+  search: string,
+  store: ReturnType<typeof readStore>,
+) {
   const usersById = new Map(store.users.map((user) => [user.id, user]));
   const currentUserId = actor.id;
   const ownFriendships = store.friendships.filter(
@@ -136,34 +150,177 @@ export function getFriendsPageData(actor: Actor, search = "") {
   return { incoming, outgoing, friends, friendEvents, searchResults };
 }
 
-export function sendFriendRequest(actor: Actor, recipientId: string) {
-  return changeStore((store) => {
-    assertRole(actor, ["STUDENT"], store);
-    if (actor.id === recipientId) {
-      throw new ServiceError("FORBIDDEN", "Нельзя добавить в друзья самого себя.");
-    }
-    const recipient = store.users.find(
-      (user) => user.id === recipientId && user.role === "STUDENT",
-    );
-    if (!recipient) {
-      throw new ServiceError("NOT_FOUND", "Студент не найден.");
-    }
-    if (friendshipBetween(store.friendships, actor.id, recipientId)) {
-      throw new ServiceError(
-        "ALREADY_EXISTS",
-        "Запрос или дружба с этим студентом уже существует.",
-      );
-    }
-    const friendship: CampusFriendship = {
-      id: randomUUID(),
-      requesterId: actor.id,
-      recipientId,
-      status: "PENDING",
-      createdAt: new Date().toISOString(),
+async function getPrismaFriendsPageData(actor: Actor, search: string) {
+  const prisma = getPrisma();
+  const [friendships, query] = await Promise.all([
+    prisma.friendship.findMany({
+      where: {
+        OR: [{ requesterId: actor.id }, { recipientId: actor.id }],
+      },
+      include: {
+        requester: { select: { id: true, name: true, group: true } },
+        recipient: { select: { id: true, name: true, group: true } },
+      },
+    }),
+    search.trim().length < 2
+      ? Promise.resolve([])
+      : prisma.user.findMany({
+          where: {
+            role: "STUDENT",
+            id: { not: actor.id },
+            OR: [
+              { name: { contains: search.trim(), mode: "insensitive" } },
+              { email: { contains: search.trim(), mode: "insensitive" } },
+              { group: { contains: search.trim(), mode: "insensitive" } },
+            ],
+          },
+          select: { id: true, name: true, group: true },
+          take: 20,
+          orderBy: { name: "asc" },
+        }),
+  ]);
+  const incoming = friendships
+    .filter((friendship) => friendship.status === "PENDING" && friendship.recipientId === actor.id)
+    .map((friendship) => ({
+      id: friendship.id,
+      user: friendship.requester,
+    }));
+  const outgoing = friendships
+    .filter((friendship) => friendship.status === "PENDING" && friendship.requesterId === actor.id)
+    .map((friendship) => ({
+      id: friendship.id,
+      user: friendship.recipient,
+    }));
+  const friends = friendships
+    .filter((friendship) => friendship.status === "ACCEPTED")
+    .map((friendship) => ({
+      ...(friendship.requesterId === actor.id
+        ? friendship.recipient
+        : friendship.requester),
+      friendshipId: friendship.id,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  const friendIds = friends.map((friend) => friend.id);
+  const registrations = friendIds.length
+    ? await getPrisma().registration.findMany({
+        where: {
+          userId: { in: friendIds },
+          status: "CONFIRMED",
+          event: {
+            status: "PUBLISHED",
+            archivedAt: null,
+            startsAt: { gte: new Date() },
+          },
+        },
+        include: {
+          user: { select: { id: true, name: true } },
+          event: { include: eventInclude },
+        },
+        orderBy: { event: { startsAt: "asc" } },
+      })
+    : [];
+  const eventMap = new Map<string, {
+    event: ReturnType<typeof toEventDto>;
+    friends: { id: string; name: string }[];
+  }>();
+  for (const registration of registrations) {
+    const entry = eventMap.get(registration.eventId) ?? {
+      event: toEventDto(registration.event),
+      friends: [],
     };
-    store.friendships.push(friendship);
-    return friendship;
+    entry.friends.push(registration.user);
+    eventMap.set(registration.eventId, entry);
+  }
+  const friendshipByPair = new Map(
+    friendships.map((friendship) => [
+      [friendship.requesterId, friendship.recipientId].sort().join(":"),
+      friendship,
+    ]),
+  );
+  const searchResults = query.map((user) => {
+    const friendship = friendshipByPair.get([actor.id, user.id].sort().join(":"));
+    return {
+      ...user,
+      state: !friendship
+        ? "NONE" as const
+        : friendship.status === "ACCEPTED"
+          ? "FRIENDS" as const
+          : friendship.requesterId === actor.id
+            ? "OUTGOING" as const
+            : "INCOMING" as const,
+    };
   });
+  return {
+    incoming,
+    outgoing,
+    friends,
+    friendEvents: [...eventMap.values()],
+    searchResults,
+  };
+}
+
+export function sendFriendRequest(actor: Actor, recipientId: string) {
+  if (USE_MOCKS) {
+    return changeStore((store) => {
+      assertRole(actor, ["STUDENT"], store);
+      if (actor.id === recipientId) {
+        throw new ServiceError("FORBIDDEN", "Нельзя добавить в друзья самого себя.");
+      }
+      const recipient = store.users.find(
+        (user) => user.id === recipientId && user.role === "STUDENT",
+      );
+      if (!recipient) {
+        throw new ServiceError("NOT_FOUND", "Студент не найден.");
+      }
+      if (friendshipBetween(store.friendships, actor.id, recipientId)) {
+        throw new ServiceError(
+          "ALREADY_EXISTS",
+          "Запрос или дружба с этим студентом уже существует.",
+        );
+      }
+      const friendship: CampusFriendship = {
+        id: randomUUID(),
+        requesterId: actor.id,
+        recipientId,
+        status: "PENDING",
+        createdAt: new Date().toISOString(),
+      };
+      store.friendships.push(friendship);
+      return friendship;
+    });
+  }
+
+  assertRole(actor, ["STUDENT"]);
+  if (actor.id === recipientId) {
+    throw new ServiceError("FORBIDDEN", "Нельзя добавить в друзья самого себя.");
+  }
+  return (async () => {
+    const prisma = getPrisma();
+    const recipient = await prisma.user.findFirst({
+      where: { id: recipientId, role: "STUDENT" },
+      select: { id: true },
+    });
+    if (!recipient) throw new ServiceError("NOT_FOUND", "Студент не найден.");
+    const pairKey = [actor.id, recipientId].sort().join(":");
+    try {
+      return await prisma.friendship.create({
+        data: { requesterId: actor.id, recipientId, pairKey },
+      });
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "P2002"
+      ) {
+        throw new ServiceError(
+          "ALREADY_EXISTS",
+          "Запрос или дружба с этим студентом уже существует.",
+        );
+      }
+      throw error;
+    }
+  })();
 }
 
 export function respondToFriendRequest(
@@ -171,41 +328,76 @@ export function respondToFriendRequest(
   friendshipId: string,
   accept: boolean,
 ) {
-  return changeStore((store) => {
-    assertRole(actor, ["STUDENT"], store);
-    const friendship = store.friendships.find(
-      (item) =>
-        item.id === friendshipId &&
-        item.recipientId === actor.id &&
-        item.status === "PENDING",
-    );
-    if (!friendship) {
+  if (USE_MOCKS) {
+    return changeStore((store) => {
+      assertRole(actor, ["STUDENT"], store);
+      const friendship = store.friendships.find(
+        (item) =>
+          item.id === friendshipId &&
+          item.recipientId === actor.id &&
+          item.status === "PENDING",
+      );
+      if (!friendship) {
+        throw new ServiceError("NOT_FOUND", "Запрос в друзья не найден.");
+      }
+      if (accept) {
+        friendship.status = "ACCEPTED";
+        return friendship;
+      }
+      store.friendships = store.friendships.filter(
+        (item) => item.id !== friendshipId,
+      );
+      return null;
+    });
+  }
+
+  assertRole(actor, ["STUDENT"]);
+  return (async () => {
+    const prisma = getPrisma();
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        id: friendshipId,
+        recipientId: actor.id,
+        status: "PENDING",
+      },
+    });
+    if (!friendship)
       throw new ServiceError("NOT_FOUND", "Запрос в друзья не найден.");
-    }
-    if (accept) {
-      friendship.status = "ACCEPTED";
-      return friendship;
-    }
-    store.friendships = store.friendships.filter(
-      (item) => item.id !== friendshipId,
-    );
-    return null;
-  });
+    return accept
+      ? prisma.friendship.update({
+          where: { id: friendship.id },
+          data: { status: "ACCEPTED" },
+        })
+      : prisma.friendship.delete({ where: { id: friendship.id } });
+  })();
 }
 
 export function removeFriend(actor: Actor, otherUserId: string) {
-  return changeStore((store) => {
-    assertRole(actor, ["STUDENT"], store);
-    const friendship = friendshipBetween(
-      store.friendships,
-      actor.id,
-      otherUserId,
-    );
-    if (!friendship || friendship.status !== "ACCEPTED") {
-      throw new ServiceError("NOT_FOUND", "Друг не найден.");
-    }
-    store.friendships = store.friendships.filter(
-      (item) => item.id !== friendship.id,
-    );
-  });
+  if (USE_MOCKS) {
+    return changeStore((store) => {
+      assertRole(actor, ["STUDENT"], store);
+      const friendship = friendshipBetween(
+        store.friendships,
+        actor.id,
+        otherUserId,
+      );
+      if (!friendship || friendship.status !== "ACCEPTED") {
+        throw new ServiceError("NOT_FOUND", "Друг не найден.");
+      }
+      store.friendships = store.friendships.filter(
+        (item) => item.id !== friendship.id,
+      );
+    });
+  }
+
+  assertRole(actor, ["STUDENT"]);
+  return (async () => {
+    const pairKey = [actor.id, otherUserId].sort().join(":");
+    const friendship = await getPrisma().friendship.findFirst({
+      where: { pairKey, status: "ACCEPTED" },
+      select: { id: true },
+    });
+    if (!friendship) throw new ServiceError("NOT_FOUND", "Друг не найден.");
+    await getPrisma().friendship.delete({ where: { id: friendship.id } });
+  })();
 }

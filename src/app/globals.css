@@ -58,6 +58,9 @@ a.text-primary { display: inline-flex; min-height: 44px; min-width: 44px; align-
 .header-nav a.active::after { content: ""; position: absolute; bottom: 0; height: 3px; width: 100%; background: var(--gold); }
 .header-account { display: flex; min-height: 44px; gap: 9px; align-items: center; border: 1px solid #ffffff29; padding: 11px 14px; border-radius: 7px; font-size: 12px; white-space: nowrap; }
 .header-account:hover { border-color: var(--gold); color: var(--gold); }
+.header-account-identity { display: flex; min-width: 0; flex-direction: column; line-height: 1.25; }
+.header-account-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.header-account-role { color: #bfc3d7; font-size: 10px; }
 .public-main { padding-block: 24px 52px; min-height: calc(100vh - 260px); }
 .page-eyebrow { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 1.5px; font-weight: 600; color: #555f75; margin-bottom: 18px; }
 .page-eyebrow > span:first-child { display: inline-flex; align-items: center; gap: 8px; }

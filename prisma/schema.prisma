@@ -42,6 +42,22 @@ enum RegistrationStatus {
   CANCELLED
 }
 
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+}
+
+enum NotificationKind {
+  EVENT_CANCELLED
+  EVENT_UPDATED
+}
+
+enum AuditEntityType {
+  EVENT
+  USER
+  CATEGORY
+}
+
 // ============================================================
 // Пользователи
 // Поля name / email / emailVerified / image / createdAt / updatedAt
@@ -72,6 +88,9 @@ model User {
   checkIns            Registration[]        @relation("RegistrationCheckedInBy")
   favorites           Favorite[]
   comments            Comment[]
+  sentFriendships     Friendship[]          @relation("FriendshipRequester")
+  receivedFriendships Friendship[]          @relation("FriendshipRecipient")
+  notifications       Notification[]
   priorityMemberships EventPriorityMember[]
   staffAssignments    EventStaff[]
   sessions            Session[]
@@ -168,6 +187,7 @@ model Event {
   registrations   Registration[]
   favorites       Favorite[]
   comments        Comment[]
+  notifications   Notification[]
   priorityMembers EventPriorityMember[]
   staff           EventStaff[]
 
@@ -195,7 +215,8 @@ model Registration {
   createdAt DateTime           @default(now())
 
   // Заполняется только у CONFIRMED-записей
-  qrToken String? @unique
+  qrToken   String? @unique
+  shortCode String? @unique
 
   checkedInAt   DateTime?
   checkedInById String?
@@ -262,4 +283,50 @@ model Comment {
   createdAt DateTime @default(now())
 
   @@index([eventId, createdAt])
+}
+
+model Friendship {
+  id          String           @id @default(cuid())
+  requesterId String
+  requester   User             @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User             @relation("FriendshipRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  pairKey     String           @unique
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+
+  @@index([recipientId, status])
+  @@index([requesterId, status])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId   String
+  event     Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  kind      NotificationKind
+  title     String
+  message   String           @db.Text
+  createdAt DateTime         @default(now())
+  readAt    DateTime?
+
+  @@index([userId, createdAt])
+  @@index([eventId])
+}
+
+model AuditEntry {
+  id          String          @id @default(cuid())
+  occurredAt  DateTime        @default(now())
+  actorId     String
+  actorName   String
+  entityType  AuditEntityType
+  entityId    String
+  entityLabel String
+  field       String
+  oldValue    String          @db.Text
+  newValue    String          @db.Text
+
+  @@index([occurredAt])
+  @@index([entityType, entityId, occurredAt])
 }

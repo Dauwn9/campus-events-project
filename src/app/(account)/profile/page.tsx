@@ -12,6 +12,8 @@ import ProfileForm from "@/components/workspace/ProfileForm";
 import StudentEventCard from "@/components/workspace/StudentEventCard";
 import { logoutAction } from "@/app/campus-actions";
 import { datePart } from "@/lib/event-design";
+import { getMyRegistrations } from "@/lib/services/registrations";
+import { getPrisma } from "@/lib/prisma";
 
 const roleLabels = {
   STUDENT: "Студент",
@@ -21,27 +23,19 @@ const roleLabels = {
 
 export default async function ProfilePage() {
   const user = await requireAnyRole("STUDENT", "ORGANIZER", "ADMIN");
-  const store =
-    user.role === "STUDENT" && USE_MOCKS ? readStore() : undefined;
-  const hasStudentDemoData =
-    user.role === "STUDENT" &&
-    store?.users.some((item) => item.id === user.id) === true;
-  const regs = hasStudentDemoData
-    ? store!.registrations.filter((registration) => registration.userId === user.id)
-    : [];
+  const hasStudentDemoData = user.role === "STUDENT";
+  const regs = hasStudentDemoData ? await getMyRegistrations({ when: "all" }) : [];
   const visits = regs.filter((registration) => registration.checkedInAt).length;
-  const isActive =
-    hasStudentDemoData &&
-    getStudentPriorityStatus(store!, user.id) === "ACTIVE";
+  const isActive = hasStudentDemoData
+    ? USE_MOCKS
+      ? getStudentPriorityStatus(readStore(), user.id) === "ACTIVE"
+      : (await getPrisma().user.findUnique({
+          where: { id: user.id },
+          select: { priorityStatus: true },
+        }))?.priorityStatus === "ACTIVE" || visits >= 3
+    : false;
   const history = regs
     .filter((registration) => registration.checkedInAt)
-    .flatMap((registration) => {
-      const event = store!.events.find(
-        (item) => item.id === registration.eventId,
-      );
-      if (!event) return [];
-      return [{ ...registration, event }];
-    })
     .sort(
       (a, b) =>
         new Date(b.checkedInAt ?? 0).getTime() -

@@ -1,14 +1,17 @@
 import { APIError } from "better-auth/api";
 import { auth } from "@/lib/better-auth";
-import { getPrisma } from "@/lib/prisma";
 import { ServiceError } from "@/lib/services/errors";
 
-export async function updateProfileName(userId: string, name: string) {
-  return getPrisma().user.update({
-    where: { id: userId },
-    data: { name },
-    select: { id: true, name: true },
+export async function updateProfileName(headers: Headers, name: string) {
+  const session = await auth.api.getSession({ headers });
+  if (!session) {
+    throw new ServiceError("UNAUTHORIZED", "Войдите в аккаунт.");
+  }
+  await auth.api.updateUser({
+    body: { name },
+    headers,
   });
+  return { id: session.user.id, name };
 }
 
 export async function changeProfilePassword(

@@ -6,7 +6,7 @@ import {
 } from "./campus";
 import type { Event } from "@/lib/validators/event";
 import { getPrisma } from "@/lib/prisma";
-import { ServiceError } from "./errors";
+import { ServiceError, USE_MOCKS } from "./errors";
 import { z } from "zod";
 import { toAppRole, type Role } from "@/lib/roles";
 import { eventInclude, toEventDto } from "./event-prisma";
@@ -205,7 +205,7 @@ export async function updateAdminUser(actor: {
     { isolationLevel: "Serializable" },
   );
 
-  recordCampusUserAudit(actor, updated.user, [
+  await recordCampusUserAudit(actor, updated.user, [
     ...(updated.roleChanged
       ? [
           {
@@ -246,11 +246,29 @@ export async function updateAdminUser(actor: {
 
 export async function getAdminAuditLog(): Promise<Array<CampusAuditEntry & { actorRole?: string | null }>> {
   await requireRole("ADMIN");
-  const store = readStore();
-  return store.auditLog.slice(-200).reverse().map((entry) => ({
+  if (USE_MOCKS) {
+    const store = readStore();
+    return store.auditLog.slice(-200).reverse().map((entry) => ({
+      ...entry,
+      actorRole: store.users.find((user) => user.id === entry.actorId)?.role ?? null,
+    }));
+  }
+  const entries = await getPrisma().auditEntry.findMany({
+    orderBy: { occurredAt: "desc" },
+    take: 200,
+  });
+  const actorIds = [...new Set(entries.map((entry) => entry.actorId))];
+  const users = actorIds.length
+    ? await getPrisma().user.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, role: true },
+      })
+    : [];
+  const rolesById = new Map(users.map((user) => [user.id, user.role]));
+  return entries.map((entry) => ({
     ...entry,
-    // TODO: Resolve audit actor roles from Better Auth users after audit storage migrates.
-    actorRole: store.users.find((user) => user.id === entry.actorId)?.role ?? null,
+    occurredAt: entry.occurredAt.toISOString(),
+    actorRole: rolesById.get(entry.actorId) ?? null,
   }));
 }
 
@@ -274,25 +292,53 @@ export async function getAdminArchivedEvents() {
 
 export async function getAdminOverview() {
   await requireRole("ADMIN");
-  const store = readStore();
+  if (USE_MOCKS) {
+    const store = readStore();
+    return {
+      totalEvents: store.events.filter(isActiveEvent).length,
+      publishedEvents: store.events.filter(
+        (event) => isActiveEvent(event) && event.status === "PUBLISHED",
+      ).length,
+      totalRegistrations: store.registrations.filter(
+        (registration) => registration.status === "CONFIRMED",
+      ).length,
+      totalUsers: store.users.length,
+      popularEvents: store.events
+        .filter(isActiveEvent)
+        .sort((a, b) => b.registeredCount - a.registeredCount)
+        .slice(0, 5)
+        .map(({ id, title, registeredCount }) => ({
+          id,
+          title,
+          registeredCount,
+        })),
+    };
+  }
+  const prisma = getPrisma();
+  const [totalEvents, publishedEvents, totalRegistrations, totalUsers, events] =
+    await Promise.all([
+      prisma.event.count({ where: { archivedAt: null } }),
+      prisma.event.count({
+        where: { archivedAt: null, status: "PUBLISHED" },
+      }),
+      prisma.registration.count({ where: { status: "CONFIRMED" } }),
+      prisma.user.count(),
+      prisma.event.findMany({
+        where: { archivedAt: null },
+        include: eventInclude,
+        orderBy: { registrations: { _count: "desc" } },
+        take: 5,
+      }),
+    ]);
   return {
-    totalEvents: store.events.filter(isActiveEvent).length,
-    publishedEvents: store.events.filter(
-      (e) => isActiveEvent(e) && e.status === "PUBLISHED",
-    )
-      .length,
-    totalRegistrations: store.registrations.filter(
-      (r) => r.status === "CONFIRMED",
-    ).length,
-    totalUsers: store.users.length,
-    popularEvents: store.events
-      .filter(isActiveEvent)
-      .sort((a, b) => b.registeredCount - a.registeredCount)
-      .slice(0, 5)
-      .map(({ id, title, registeredCount }) => ({
-        id,
-        title,
-        registeredCount,
-      })),
+    totalEvents,
+    publishedEvents,
+    totalRegistrations,
+    totalUsers,
+    popularEvents: events.map((event) => ({
+      id: event.id,
+      title: event.title,
+      registeredCount: event._count.registrations,
+    })),
   };
 }

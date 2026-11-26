@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { readStore } from "@/lib/services/demo-store";
+import { getPrisma } from "@/lib/prisma";
+import { USE_MOCKS } from "@/lib/services/errors";
+import { eventInclude, toEventDto } from "@/lib/services/event-prisma";
 import { datePart } from "@/lib/event-design";
 import { eventOperationAction } from "@/app/campus-actions";
 import {
@@ -23,23 +26,42 @@ export default async function OrganizerEventPage({
   const user = await requireRole("ORGANIZER");
   const { id } = await params;
   const query = await searchParams;
-  const store = readStore();
-  const event = store.events.find(
-    (e) => e.id === id && e.organizerId === user.id,
-  );
+  const store = USE_MOCKS ? readStore() : null;
+  const event = USE_MOCKS
+    ? store!.events.find((item) => item.id === id && item.organizerId === user.id)
+    : await getPrisma().event.findFirst({
+        where: { id, organizerId: user.id, archivedAt: null },
+        include: eventInclude,
+      }).then((record) => record ? toEventDto(record) : undefined);
   if (!event) notFound();
-  const registrations = store.registrations.filter((r) => r.eventId === id);
-  const participants = registrations.map((r) => {
-    const person = store.users.find((u) => u.id === r.userId);
-    // TODO: Resolve participant profiles from Better Auth users after registrations migrate.
+  const registrations = USE_MOCKS
+    ? store!.registrations
+        .filter((registration) => registration.eventId === id)
+        .map((registration) => ({
+          ...registration,
+          person: store!.users.find((item) => item.id === registration.userId),
+        }))
+    : await getPrisma().registration.findMany({
+        where: { eventId: id },
+        include: { user: { select: { name: true, email: true, group: true } } },
+        orderBy: { createdAt: "asc" },
+      }).then((rows) =>
+        rows.map((registration) => ({
+          ...registration,
+          checkedInAt: registration.checkedInAt?.toISOString() ?? null,
+          person: registration.user,
+        })),
+      );
+  const participants = registrations.map((registration) => {
+    const person = registration.person;
     return {
-      id: r.id,
+      id: registration.id,
       name: person?.name ?? "Участник",
       email: person?.email ?? "",
       group: person?.group ?? "",
-      status: r.status,
-      checkedInAt: r.checkedInAt,
-      shortCode: r.shortCode,
+      status: registration.status,
+      checkedInAt: registration.checkedInAt,
+      shortCode: registration.shortCode ?? "",
     };
   });
   return (
