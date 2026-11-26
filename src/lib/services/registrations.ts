@@ -15,6 +15,7 @@ import { getPrisma } from "@/lib/prisma";
 import { USE_MOCKS } from "./errors";
 import { getEventById } from "./events";
 import type { Event } from "@/lib/validators/event";
+import { qrTokenFor, shortCodeFor } from "./tickets";
 
 export async function getMyRegistrations(
   filter: Partial<MyRegistrationsFilter> = {},
@@ -49,7 +50,10 @@ export async function getMyRegistrations(
         qrToken: registration.qrToken,
         checkedInAt: registration.checkedInAt?.toISOString() ?? null,
         checkedInById: registration.checkedInById,
-        shortCode: null,
+        shortCode:
+          registration.status === "CONFIRMED"
+            ? shortCodeFor(registration.id)
+            : null,
         event: {
           id: registration.event.id,
           title: registration.event.title,
@@ -96,10 +100,206 @@ export async function getMyRegistrations(
     .sort((a, b) => a.event.startsAt.localeCompare(b.event.startsAt));
 }
 export async function registerForEvent(id: string) {
-  return registerStudent(await requireRole("STUDENT"), id);
+  const user = await requireRole("STUDENT");
+  if (USE_MOCKS) return registerStudent(user, id);
+
+  const prisma = getPrisma();
+  return prisma.$transaction(async (transaction) => {
+    const lockedEvents = await transaction.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Event" WHERE id = ${id} FOR UPDATE
+    `;
+    if (lockedEvents.length === 0)
+      throw new ServiceError("NOT_FOUND", "Событие недоступно для записи.");
+
+    const event = await transaction.event.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        archivedAt: true,
+        startsAt: true,
+        capacity: true,
+        registrationOpensAt: true,
+        priorityWindowHours: true,
+      },
+    });
+    if (!event || event.archivedAt || event.status !== "PUBLISHED")
+      throw new ServiceError("NOT_FOUND", "Событие недоступно для записи.");
+    const now = new Date();
+    if (event.startsAt <= now)
+      throw new ServiceError(
+        "EVENT_PAST",
+        "Запись закрыта: событие уже началось.",
+      );
+
+    const current = await transaction.registration.findUnique({
+      where: { userId_eventId: { userId: user.id, eventId: id } },
+    });
+    if (current && current.status !== "CANCELLED")
+      throw new ServiceError(
+        "ALREADY_REGISTERED",
+        "Вы уже записаны на это событие.",
+      );
+
+    if (event.registrationOpensAt && event.registrationOpensAt > now)
+      throw new ServiceError("NOT_OPEN_YET", "Запись ещё не открылась.");
+
+    const priorityDeadline =
+      event.registrationOpensAt && event.priorityWindowHours > 0
+        ? event.registrationOpensAt.getTime() +
+          event.priorityWindowHours * 60 * 60 * 1000
+        : null;
+    if (priorityDeadline && now.getTime() < priorityDeadline) {
+      const [profile, membership] = await Promise.all([
+        transaction.user.findUnique({
+          where: { id: user.id },
+          select: { priorityStatus: true },
+        }),
+        transaction.eventPriorityMember.findUnique({
+          where: { eventId_userId: { eventId: id, userId: user.id } },
+          select: { userId: true },
+        }),
+      ]);
+      if (profile?.priorityStatus !== "ACTIVE" && !membership)
+        throw new ServiceError(
+          "NOT_OPEN_YET",
+          "Пока действует приоритетная запись для активных студентов и участников списка организатора.",
+        );
+    }
+
+    const confirmedCount = await transaction.registration.count({
+      where: { eventId: id, status: "CONFIRMED" },
+    });
+    const status = confirmedCount < event.capacity ? "CONFIRMED" : "WAITLIST";
+    const createdAt = new Date();
+    const saved = current
+      ? await transaction.registration.update({
+          where: { id: current.id },
+          data: {
+            status,
+            createdAt,
+            qrToken: status === "CONFIRMED" ? qrTokenFor(current.id) : null,
+            checkedInAt: null,
+            checkedInById: null,
+          },
+        })
+      : await transaction.registration.create({
+          data: {
+            userId: user.id,
+            eventId: id,
+            status,
+            createdAt,
+            qrToken: null,
+          },
+        });
+    const token = status === "CONFIRMED" ? qrTokenFor(saved.id) : null;
+    const registration =
+      saved.qrToken === token
+        ? saved
+        : await transaction.registration.update({
+            where: { id: saved.id },
+            data: { qrToken: token },
+          });
+    return {
+      ...registration,
+      shortCode:
+        registration.status === "CONFIRMED"
+          ? shortCodeFor(registration.id)
+          : null,
+    };
+  });
 }
 export async function cancelRegistration(id: string) {
-  return cancelStudentRegistration(await requireRole("STUDENT"), id);
+  const user = await requireRole("STUDENT");
+  if (USE_MOCKS) return cancelStudentRegistration(user, id);
+
+  const prisma = getPrisma();
+  const registrationReference = await prisma.registration.findFirst({
+    where: { id, userId: user.id },
+    select: { eventId: true },
+  });
+  if (!registrationReference)
+    throw new ServiceError("NOT_FOUND", "Ваша регистрация не найдена.");
+
+  return prisma.$transaction(async (transaction) => {
+    const lockedEvents = await transaction.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Event" WHERE id = ${registrationReference.eventId} FOR UPDATE
+    `;
+    if (lockedEvents.length === 0)
+      throw new ServiceError("NOT_FOUND", "Ваша регистрация не найдена.");
+
+    const [registration, event] = await Promise.all([
+      transaction.registration.findUnique({ where: { id } }),
+      transaction.event.findUnique({
+        where: { id: registrationReference.eventId },
+        select: { id: true, startsAt: true },
+      }),
+    ]);
+    if (!registration || registration.userId !== user.id || !event)
+      throw new ServiceError("NOT_FOUND", "Ваша регистрация не найдена.");
+    if (registration.checkedInAt)
+      throw new ServiceError(
+        "FORBIDDEN",
+        "Вход уже отмечен. Отменить посещение нельзя.",
+      );
+    if (event.startsAt <= new Date())
+      throw new ServiceError(
+        "EVENT_PAST",
+        "После начала события запись нельзя отменить.",
+      );
+
+    const hadSeat = registration.status === "CONFIRMED";
+    const cancelled = await transaction.registration.update({
+      where: { id },
+      data: { status: "CANCELLED", qrToken: null },
+    });
+    if (!hadSeat) return cancelled;
+
+    const waiting = await transaction.registration.findMany({
+      where: { eventId: event.id, status: "WAITLIST" },
+      include: {
+        user: {
+          select: {
+            priorityStatus: true,
+            blocked: true,
+            blockedUntil: true,
+          },
+        },
+      },
+    });
+    const membership = await transaction.eventPriorityMember.findMany({
+      where: {
+        eventId: event.id,
+        userId: { in: waiting.map((item) => item.userId) },
+      },
+      select: { userId: true },
+    });
+    const priorityMemberIds = new Set(membership.map((item) => item.userId));
+    const now = new Date();
+    const next = waiting
+      .filter(
+        (item) =>
+          !item.user.blocked ||
+          (item.user.blockedUntil !== null && item.user.blockedUntil <= now),
+      )
+      .sort((a, b) => {
+        const aPriority =
+          a.user.priorityStatus === "ACTIVE" || priorityMemberIds.has(a.userId);
+        const bPriority =
+          b.user.priorityStatus === "ACTIVE" || priorityMemberIds.has(b.userId);
+        return (
+          Number(bPriority) - Number(aPriority) ||
+          a.createdAt.getTime() - b.createdAt.getTime()
+        );
+      })[0];
+    if (next) {
+      await transaction.registration.update({
+        where: { id: next.id },
+        data: { status: "CONFIRMED", qrToken: qrTokenFor(next.id) },
+      });
+    }
+    return cancelled;
+  });
 }
 export async function getEventRegistrationState(
   id: string,
