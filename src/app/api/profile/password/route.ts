@@ -2,14 +2,13 @@ import { APIError } from "better-auth/api";
 import { apiError, requireApiRole } from "@/lib/api-response";
 import { changeProfilePassword } from "@/lib/profile";
 import { ServiceError } from "@/lib/services/errors";
-import { profileInputSchema } from "@/lib/validators/profile";
+import { passwordChangeInputSchema } from "@/lib/validators/profile";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireApiRole("STUDENT", "ORGANIZER", "ADMIN");
+    await requireApiRole("STUDENT", "ORGANIZER", "ADMIN");
     const body = await request.json();
-    const input = profileInputSchema.parse({
-      name: user.name,
+    const input = passwordChangeInputSchema.parse({
       currentPassword: body?.currentPassword,
       password: body?.password,
       passwordConfirmation: body?.passwordConfirmation,
