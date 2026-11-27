@@ -102,7 +102,13 @@ export default async function EventPage({
             {comments.map((comment) => (
               <Card key={comment.id} className="space-y-2">
                 <div className="flex flex-wrap justify-between gap-2">
-                  <span className="font-medium">{comment.userName}</span>
+                  {user.role === "GUEST" ? (
+                    <span className="font-medium">{comment.userName}</span>
+                  ) : (
+                    <Link href={`/users/${comment.userId}`} className="font-medium text-primary hover:underline">
+                      {comment.userName}
+                    </Link>
+                  )}
                   <time className="text-sm text-muted" dateTime={comment.createdAt}>
                     {new Date(comment.createdAt).toLocaleString("ru-RU")}
                   </time>

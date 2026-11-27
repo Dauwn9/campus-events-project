@@ -9,6 +9,8 @@ import {
   Empty,
 } from "@/components/workspace/WorkspaceUI";
 import ProfileForm from "@/components/workspace/ProfileForm";
+import ProfilePrivacy from "@/components/workspace/ProfilePrivacy";
+import { getProfilePrivacy } from "@/lib/services/users";
 import StudentEventCard from "@/components/workspace/StudentEventCard";
 import { logoutAction } from "@/app/campus-actions";
 import { datePart } from "@/lib/event-design";
@@ -111,6 +113,10 @@ export default async function ProfilePage() {
               </p>
             </>
           )}
+          <ProfilePrivacy
+            userId={user.id}
+            initialPrivate={await getProfilePrivacy(user.id)}
+          />
           <form action={logoutAction}>
             <button className="workspace-button secondary">
               Выйти из аккаунта

@@ -34,6 +34,7 @@ import {
   type ProfileField,
 } from "@/lib/validators/profile";
 import { studentGroupSchema } from "@/lib/validators/student-group";
+import { setProfilePrivacy } from "@/lib/services/users";
 import { passwordSchema } from "@/lib/validators/password";
 
 export type ActionState = {
@@ -383,6 +384,24 @@ export async function updateProfileNameAction(
     if (error instanceof z.ZodError) {
       return { fieldErrors: profileFieldErrors(error) };
     }
+    return errorState(error);
+  }
+}
+export async function updateProfilePrivacyAction(
+  _state: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  const user = await requireAnyRole("STUDENT", "ORGANIZER", "ADMIN");
+  try {
+    const isPrivate = form.get("profilePrivate") === "on";
+    await setProfilePrivacy(user.id, isPrivate);
+    refresh();
+    return {
+      message: isPrivate
+        ? "Профиль закрыт: другие видят только ваше имя."
+        : "Профиль открыт для других пользователей.",
+    };
+  } catch (error) {
     return errorState(error);
   }
 }

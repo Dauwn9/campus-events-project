@@ -29,6 +29,7 @@ export type CampusUser = {
   group: string;
   school: string;
   priorityStatus?: "STANDARD" | "ACTIVE";
+  profilePrivate?: boolean;
   blocked: boolean;
   blockedUntil?: string | null;
   passwordHash?: string;

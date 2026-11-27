@@ -28,5 +28,6 @@ export const config = {
     "/favorites/:path*",
     "/friends/:path*",
     "/notifications/:path*",
+    "/users/:path*",
   ],
 };
