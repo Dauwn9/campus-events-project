@@ -29,11 +29,12 @@ import { ServiceError } from "@/lib/services/errors";
 import { moderateEvent, updateAdminUser } from "@/lib/services/admin";
 import { encodeEventCover, EventCoverError } from "@/lib/event-cover";
 import {
-  isProfileField,
-  profileInputSchema,
+  passwordChangeInputSchema,
+  profileNameInputSchema,
   type ProfileField,
 } from "@/lib/validators/profile";
 import { studentGroupSchema } from "@/lib/validators/student-group";
+import { passwordSchema } from "@/lib/validators/password";
 
 export type ActionState = {
   error?: string;
@@ -87,6 +88,24 @@ function errorState(error: unknown): ActionState {
     error instanceof Error ? error.message : "unknown",
   );
   return { error: "Не удалось сохранить изменения. Попробуйте ещё раз." };
+}
+function profileFieldErrors(
+  error: z.ZodError,
+): Partial<Record<ProfileField, string>> {
+  const fieldErrors: Partial<Record<ProfileField, string>> = {};
+  for (const issue of error.issues) {
+    const field = issue.path[0];
+    if (
+      (field === "name" ||
+        field === "currentPassword" ||
+        field === "password" ||
+        field === "passwordConfirmation") &&
+      !fieldErrors[field]
+    ) {
+      fieldErrors[field] = issue.message;
+    }
+  }
+  return fieldErrors;
 }
 function refresh() {
   revalidatePath("/", "layout");
@@ -348,39 +367,46 @@ export async function updateStudentGroupAction(
     return errorState(error);
   }
 }
-export async function profileAction(
+export async function updateProfileNameAction(
   _state: ProfileActionState,
   form: FormData,
 ): Promise<ProfileActionState> {
-  const actor = await requireAnyRole("STUDENT", "ORGANIZER", "ADMIN");
+  await requireAnyRole("STUDENT", "ORGANIZER", "ADMIN");
   try {
-    const profile = {
-      name: text(form, "name"),
+    const { name } = profileNameInputSchema.parse({
+      name: form.get("name"),
+    });
+    await updateProfileName(new Headers(await headers()), name);
+    refresh();
+    return { message: "Имя обновлено." };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return { fieldErrors: profileFieldErrors(error) };
+    }
+    return errorState(error);
+  }
+}
+export async function changeProfilePasswordAction(
+  _state: ProfileActionState,
+  form: FormData,
+): Promise<ProfileActionState> {
+  await requireAnyRole("STUDENT", "ORGANIZER", "ADMIN");
+  try {
+    const parsed = passwordChangeInputSchema.parse({
       currentPassword: String(form.get("currentPassword") ?? ""),
       password: String(form.get("password") ?? ""),
       passwordConfirmation: String(form.get("passwordConfirmation") ?? ""),
-    };
-    const parsed = profileInputSchema.parse(profile);
-    if (parsed.password) {
-      await changeProfilePassword(
-        new Headers(await headers()),
-        parsed.currentPassword,
-        parsed.password,
-      );
-    }
-    await updateProfileName(actor.id, parsed.name);
+    });
+    await changeProfilePassword(
+      new Headers(await headers()),
+      parsed.currentPassword,
+      parsed.password,
+    );
     refresh();
-    return { message: "Профиль сохранён." };
+    return { message: "Пароль обновлён." };
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const fieldErrors: Partial<Record<ProfileField, string>> = {};
-      for (const issue of error.issues) {
-        const field = issue.path[0];
-        if (isProfileField(field) && !fieldErrors[field]) {
-          fieldErrors[field] = issue.message;
-        }
-      }
-      return { fieldErrors };
+      return { fieldErrors: profileFieldErrors(error) };
     }
     if (error instanceof ServiceError && error.code === "UNAUTHORIZED") {
       return { fieldErrors: { currentPassword: error.message } };
@@ -449,7 +475,7 @@ export async function registerAccountAction(
       .object({
         name: z.string().trim().min(2).max(80),
         email: z.email().max(150).transform((email) => email.toLowerCase()),
-        password: z.string().min(8).max(128),
+        password: passwordSchema,
       })
       .parse({
         name: text(form, "name"),
