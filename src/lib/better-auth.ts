@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
 import { getPrisma } from "@/lib/prisma";
+import { passwordSchema } from "@/lib/validators/password";
 
 const secret = process.env.BETTER_AUTH_SECRET;
 if (!secret) {
@@ -51,6 +52,22 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (context) => {
+      // Правила пароля (буква + цифра, 8–128 символов) действуют и при прямых
+      // запросах к Better Auth, а не только в формах приложения.
+      if (context.path === "/sign-up/email" || context.path === "/change-password") {
+        const password =
+          context.path === "/sign-up/email"
+            ? context.body?.password
+            : context.body?.newPassword;
+        const result = passwordSchema.safeParse(password);
+        if (!result.success) {
+          throw APIError.from("BAD_REQUEST", {
+            code: "WEAK_PASSWORD",
+            message: result.error.issues[0]?.message ?? "Пароль слишком простой.",
+          });
+        }
+        return;
+      }
       if (context.path !== "/sign-in/email") return;
       const email = context.body?.email;
       if (typeof email !== "string") return;
