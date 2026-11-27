@@ -1,12 +1,16 @@
 import { z } from "zod";
+import { passwordSchema } from "@/lib/validators/password";
 
-export const profileInputSchema = z
+export const profileNameInputSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Имя должно содержать не менее 2 символов.")
+    .max(50, "Имя должно содержать не более 50 символов."),
+});
+
+const optionalPasswordFieldsSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, "Имя должно содержать не менее 2 символов.")
-      .max(80, "Имя должно содержать не более 80 символов."),
     currentPassword: z.string().max(128, "Пароль: не более 128 символов."),
     password: z.string().max(128, "Пароль: не более 128 символов."),
     passwordConfirmation: z
@@ -43,19 +47,12 @@ export const profileInputSchema = z
     }
 
     if (hasNewPassword) {
-      if (profile.password.length < 8) {
+      const passwordResult = passwordSchema.safeParse(profile.password);
+      if (!passwordResult.success) {
         context.addIssue({
           code: "custom",
           path: ["password"],
-          message: "Новый пароль должен содержать не менее 8 символов.",
-        });
-      }
-
-      if (!/\p{L}/u.test(profile.password) || !/\d/.test(profile.password)) {
-        context.addIssue({
-          code: "custom",
-          path: ["password"],
-          message: "Добавьте в пароль хотя бы одну букву и одну цифру.",
+          message: passwordResult.error.issues[0].message,
         });
       }
 
@@ -86,8 +83,44 @@ export const profileInputSchema = z
     }
   });
 
+export const passwordChangeInputSchema = z
+  .object({
+    currentPassword: z
+      .string()
+      .min(1, "Введите текущий пароль.")
+      .max(128, "Пароль: не более 128 символов."),
+    password: passwordSchema,
+    passwordConfirmation: z
+      .string()
+      .min(1, "Повторите новый пароль.")
+      .max(128, "Пароль: не более 128 символов."),
+  })
+  .superRefine((profile, context) => {
+    if (profile.password === profile.currentPassword) {
+      context.addIssue({
+        code: "custom",
+        path: ["password"],
+        message: "Новый пароль должен отличаться от текущего.",
+      });
+    }
+    if (profile.password !== profile.passwordConfirmation) {
+      context.addIssue({
+        code: "custom",
+        path: ["passwordConfirmation"],
+        message: "Пароли не совпадают.",
+      });
+    }
+  });
+
+export const profileInputSchema = profileNameInputSchema.and(
+  optionalPasswordFieldsSchema,
+);
+
 export type ProfileInput = z.infer<typeof profileInputSchema>;
 export type ProfileField = keyof ProfileInput;
+export type PasswordChangeField = keyof z.infer<
+  typeof passwordChangeInputSchema
+>;
 
 export function isProfileField(value: unknown): value is ProfileField {
   return (
