@@ -11,7 +11,7 @@ import {
   changeProfilePassword,
   updateProfileName,
 } from "@/lib/profile";
-import { checkInParticipant } from "@/lib/services/campus";
+import { checkInParticipant } from "@/lib/services/organizer";
 import {
   cancelRegistration,
   registerForEvent,
@@ -290,7 +290,7 @@ export async function checkInAction(
 ): Promise<CheckInState> {
   const actor = await requireAnyRole("ORGANIZER", "ADMIN");
   try {
-    const result = checkInParticipant(
+    const result = await checkInParticipant(
       actor,
       text(form, "eventId"),
       text(form, "code"),
