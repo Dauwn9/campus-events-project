@@ -6,6 +6,7 @@ import {
   RegistrationStatus,
 } from "../src/generated/prisma/client";
 import { getPrisma } from "../src/lib/prisma";
+import { fillMissingQrTokens } from "./qr-tokens";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -369,8 +370,8 @@ async function main() {
   });
 
   // --- регистрации ---
-  // qrToken у подтверждённых записей добавим на этапе 5,
-  // когда появится общий генератор токенов (подпись HMAC).
+  // qrToken подтверждённым записям выдаётся ниже, после createMany:
+  // токену нужен id записи (подпись HMAC, см. src/lib/services/tickets.ts).
   await prisma.registration.createMany({
     data: [
       // посещения прошедших событий
@@ -439,6 +440,7 @@ async function main() {
       },
     ],
   });
+  await fillMissingQrTokens(prisma);
 
   // --- приоритетный список организатора и волонтёры-сканеры ---
   await prisma.eventPriorityMember.create({

@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "db:backfill-qr": "tsx prisma/backfill-qr-tokens.ts",
     "dev": "next dev",
     "build": "prisma generate --config prisma7.config.ts && next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test src/lib/services/campus.test.ts src/lib/services/tickets.test.ts src/lib/audit-history.test.ts src/lib/event-cover.test.ts src/lib/admin-filters.test.ts src/lib/admin-category-navigation.test.ts"
+    "test": "node --import tsx --test src/lib/services/campus.test.ts src/lib/services/organizer.test.ts src/lib/services/tickets.test.ts src/lib/audit-history.test.ts src/lib/event-cover.test.ts src/lib/admin-filters.test.ts src/lib/admin-category-navigation.test.ts"
   },
   "dependencies": {
     "@neon/config": "^1.14.5",
