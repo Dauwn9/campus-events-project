@@ -1,10 +1,12 @@
 "use client";
+import Link from "next/link";
 import { useState } from "react";
 import { datePart } from "@/lib/event-design";
 import { statusLabels } from "@/lib/status";
 import Icon from "@/components/ui/Icon";
 export type ParticipantRow = {
   id: string;
+  userId: string;
   name: string;
   email: string;
   group: string;
@@ -82,7 +84,11 @@ export default function ParticipantsTable({
             {rows.slice(page * 25, (page + 1) * 25).map((r) => (
               <tr key={r.id}>
                 <td>
-                  <strong>{r.name}</strong>
+                  <strong>
+                    <Link href={`/users/${r.userId}`} className="profile-link">
+                      {r.name}
+                    </Link>
+                  </strong>
                   <small>{r.email}</small>
                 </td>
                 <td>{r.group || "—"}</td>

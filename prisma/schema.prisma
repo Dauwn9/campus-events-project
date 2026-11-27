@@ -63,6 +63,8 @@ model User {
   priorityStatus PriorityStatus @default(STANDARD)
   attendedCount  Int            @default(0)
   noShowCount    Int            @default(0)
+  // Закрытый профиль: другие видят только имя (сам пользователь и админ — всё).
+  profilePrivate Boolean        @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

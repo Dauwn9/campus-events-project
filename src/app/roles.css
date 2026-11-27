@@ -1767,6 +1767,52 @@ button:disabled {
   line-height: 1.8;
   margin-block: 10px 20px;
 }
+.profile-privacy {
+  display: grid;
+  gap: 12px;
+  margin-block: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #e3e5ec;
+  text-align: left;
+}
+.profile-privacy fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.profile-privacy-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.profile-privacy-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2f2b6b;
+}
+.profile-privacy-hint {
+  color: #555f75;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 4px 0 0;
+}
+.profile-privacy-links {
+  display: grid;
+  gap: 8px;
+}
+.profile-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+}
+.profile-link:hover,
+.profile-link:focus-visible {
+  text-decoration-color: currentColor;
+}
 .priority-progress {
   height: 5px;
   background: #e0e4ee;

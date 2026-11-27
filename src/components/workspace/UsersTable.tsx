@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import ActionForm from "./ActionForm";
 import {
@@ -53,7 +54,11 @@ function UserRow({
             .join("")}
         </span>
         <div className="user-info">
-          <strong>{user.name}</strong>
+          <strong>
+            <Link href={`/users/${user.id}`} className="profile-link">
+              {user.name}
+            </Link>
+          </strong>
           <span>{user.email}</span>
           <small>
             Роль: {roleLabels[user.role] ?? user.role} ·{" "}

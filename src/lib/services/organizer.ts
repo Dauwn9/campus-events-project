@@ -13,6 +13,8 @@ import type { Event } from "@/lib/validators/event";
 
 export type OrganizerParticipant = {
   id: string;
+  /** id пользователя — для ссылки на его профиль. */
+  userId: string;
   name: string;
   email: string;
   group: string;
@@ -58,6 +60,7 @@ export async function getEventParticipants(
       event,
       participants: registrations.map((registration) => ({
         id: registration.id,
+        userId: registration.userId,
         name: registration.user.name,
         email: registration.user.email,
         group: registration.user.group ?? "",
@@ -84,6 +87,7 @@ export async function getEventParticipants(
           );
         return {
           id: registration.id,
+          userId: registration.userId,
           name: person.name,
           email: person.email,
           group: person.group,
